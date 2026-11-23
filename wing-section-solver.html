@@ -1,0 +1,2090 @@
+<meta charset="utf-8">
+<title>Wing Section Solver</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: engineering bench. Flow field and results on the left, case set-up rack on the right, method notes below. */
+:root {
+  --bg: #e9edf1;
+  --panel: #f8fafb;
+  --fg: #111b24;
+  --muted: #56636f;
+  --line: #cfd7df;
+  --accent: #c2410c;
+  --accent-ink: #ffffff;
+  --series2: #1d5fa8;
+  --solid: #2b3540;
+  --good: #1f7a4a;
+  --warn: #a15c00;
+  --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1217; --panel: #131b22; --fg: #e2e8ed; --muted: #8b99a5; --line: #26323c;
+    --accent: #ff8a4c; --accent-ink: #1a0d05; --series2: #6fb4ff; --solid: #c9d2da; --good: #5fcf92; --warn: #f0b350;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1217; --panel: #131b22; --fg: #e2e8ed; --muted: #8b99a5; --line: #26323c;
+  --accent: #ff8a4c; --accent-ink: #1a0d05; --series2: #6fb4ff; --solid: #c9d2da; --good: #5fcf92; --warn: #f0b350;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 14px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+.wrap { max-width: 1320px; margin: 0 auto; display: grid; gap: 18px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 24px; }
+h1 { font-family: var(--f-display); font-stretch: 72%; font-weight: 800; font-size: clamp(28px, 4.2vw, 44px); line-height: 1; margin: 0; text-wrap: balance; }
+.spec { font-family: var(--f-mono); font-size: 12px; color: var(--muted); margin: 0; }
+
+.bench { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 18px; align-items: start; }
+@media (max-width: 940px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+.stage { display: grid; gap: 12px; min-width: 0; }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.seg { display: inline-grid; grid-auto-flow: column; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.seg button { font: inherit; font-size: 12px; padding: 6px 10px; border: 0; border-left: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+.seg button:first-child { border-left: 0; }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 600; }
+.check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+
+.field { position: relative; width: 100%; aspect-ratio: 16 / 8; max-width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.field canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+.field canvas.smoke { cursor: crosshair; }
+select.mini { width: auto; padding: 4px 6px; font-size: 12px; }
+select.mini[hidden] { display: none; }
+.field canvas:active { cursor: grabbing; }
+.tag { position: absolute; font-family: var(--f-mono); font-size: 11px; color: var(--muted); background: color-mix(in srgb, var(--panel) 82%, transparent); padding: 2px 6px; border-radius: 2px; pointer-events: none; white-space: nowrap; }
+.tag.tl { left: 8px; top: 8px; } .tag.bl { left: 8px; bottom: 8px; } .tag.tr { right: 8px; top: 8px; }
+.scalebar { display: flex; align-items: center; gap: 10px; font-family: var(--f-mono); font-size: 11px; color: var(--muted); }
+.scalebar .bar { flex: 1; height: 8px; border-radius: 2px; min-width: 0; }
+.player { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+.player[hidden] { display: none; }
+.player .btn { padding: 6px 12px; }
+.player input[type="range"] { flex: 1 1 180px; width: auto; min-width: 120px; }
+.player select { width: auto; padding: 5px 6px; font-size: 12px; }
+.ptime { font-family: var(--f-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 17ch; }
+.pair.two { grid-template-columns: 1fr 1fr; }
+
+.status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 13px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding: 3px 9px; border-radius: 999px; border: 1px solid currentColor; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill.run { color: var(--accent); } .pill.ok { color: var(--good); } .pill.warn { color: var(--warn); } .pill.idle { color: var(--muted); }
+.status .meta { font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+
+.results { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+@media (max-width: 640px) { .results { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ro { background: var(--panel); padding: 10px 12px; display: grid; gap: 1px; min-width: 0; }
+.ro .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.ro .v { font-family: var(--f-mono); font-size: 21px; font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ro .n { font-size: 11px; color: var(--muted); font-family: var(--f-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.plots { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.plots .wide { grid-column: 1 / -1; }
+.plots .wide canvas { height: 170px; }
+.sepnote { font-size: 12px; color: var(--muted); margin: 0; font-family: var(--f-mono); }
+@media (max-width: 760px) { .plots { grid-template-columns: minmax(0, 1fr); } }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; display: grid; gap: 6px; min-width: 0; }
+figcaption { display: flex; justify-content: space-between; gap: 10px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+figcaption .key { display: flex; gap: 12px; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11.5px; }
+.sw { display: inline-block; width: 12px; height: 3px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
+figure canvas { width: 100%; height: 230px; display: block; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; font-family: var(--f-mono); font-size: 12px; font-variant-numeric: tabular-nums; width: 100%; }
+th, td { padding: 4px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-family: var(--f-body); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+
+.rack { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; display: grid; }
+.group { padding: 14px 16px; display: grid; gap: 10px; border-top: 1px solid var(--line); }
+.group:first-child { border-top: 0; }
+.group h2 { margin: 0; font-family: var(--f-display); font-stretch: 85%; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+.row { display: grid; gap: 4px; }
+[hidden] { display: none !important; }
+.secprev { width: 100%; height: 84px; display: block; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
+input[type="range"]:disabled { opacity: 0.4; }
+.row label { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.row output, .val { font-family: var(--f-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pair { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.pair label { display: grid; gap: 2px; font-size: 11px; color: var(--muted); min-width: 0; }
+.pair select { padding: 5px 4px; font-size: 12px; }
+input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
+input[type="text"], input[type="number"], select {
+  width: 100%; font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 3px; border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+}
+input[type="text"] { font-family: var(--f-mono); letter-spacing: 0.1em; }
+input[aria-invalid="true"] { border-color: var(--warn); }
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 12px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; text-align: right; font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.btn { font: inherit; font-size: 12.5px; font-weight: 600; padding: 8px 6px; border-radius: 3px; cursor: pointer; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn:hover { border-color: var(--muted); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.note { font-size: 12px; color: var(--muted); margin: 0; }
+.note b { color: var(--fg); font-weight: 600; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.method { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px 36px; padding-top: 8px; border-top: 1px solid var(--line); }
+@media (max-width: 760px) { .method { grid-template-columns: minmax(0, 1fr); } }
+.method h3 { margin: 0 0 6px; font-family: var(--f-display); font-stretch: 80%; font-size: 17px; font-weight: 700; }
+.method p, .method li { color: var(--muted); max-width: 68ch; margin: 0 0 8px; }
+.method ol, .method ul { margin: 0; padding-left: 20px; }
+.eq { font-family: var(--f-mono); font-size: 12px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 8px 10px; margin: 8px 0; overflow-x: auto; white-space: pre; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Wing Section Solver</h1>
+    <p class="spec">Steady 2D RANS · <span id="specModel">Spalart–Allmaras</span> · body-fitted O-grid · <span id="specFlow">compressible, all speeds</span> · ISA sea-level air</p>
+  </header>
+
+  <div class="bench">
+    <div class="stage">
+      <div class="toolbar">
+        <div class="seg" role="group" aria-label="Field" id="fieldSeg">
+          <button data-field="speed" aria-pressed="true">Speed</button>
+          <button data-field="cp" aria-pressed="false">Pressure C<sub>p</sub></button>
+          <button data-field="ux" aria-pressed="false">Reversed flow</button>
+          <button data-field="nut" aria-pressed="false">Eddy viscosity</button>
+          <button data-field="gamma" aria-pressed="false" class="gOnly" title="Intermittency γ of the transition model: 0 laminar, 1 turbulent" hidden>Intermittency</button>
+          <button data-field="mach" aria-pressed="false" class="compOnly" title="Local Mach number; the black line is the sonic line, M = 1">Mach</button>
+          <button data-field="schl" aria-pressed="false" class="compOnly" title="Density gradient |∇ρ|, like a schlieren photograph: shocks show as dark lines">Schlieren</button>
+          <button data-field="none" aria-pressed="false" title="No colour fill: plain background, for looking at the mesh">None</button>
+        </div>
+        <div class="seg" role="group" aria-label="View" id="viewSeg">
+          <button data-view="section" aria-pressed="true">Section</button>
+          <button data-view="le" aria-pressed="false">Leading edge</button>
+          <button data-view="te" aria-pressed="false">Trailing edge</button>
+          <button data-view="far" aria-pressed="false">Far field</button>
+        </div>
+        <label class="check"><input type="checkbox" id="chkStream" checked> Streamlines</label>
+        <label class="check" title="Velocity arrows on a regular grid; length grows with the square root of the speed"><input type="checkbox" id="chkVec"> Vectors</label>
+        <label class="check" title="Waves of short tracer streaks released at the left edge of the view and carried with the flow; in a URANS movie they follow the changing field and get caught in the shed vortices"><input type="checkbox" id="chkPulse"> Pulses</label>
+        <label class="check"><input type="checkbox" id="chkMesh"> Mesh</label>
+        <label class="check" id="lblSonic" title="Line where the local Mach number is 1. It bounds each supersonic region; where it comes down to the surface at the back, it runs along the shock." hidden><input type="checkbox" id="chkSonic" checked> Sonic line</label>
+        <label class="check" title="Hold the mouse button in the flow to release smoke"><input type="checkbox" id="chkSmoke"> Smoke probe</label>
+        <select id="selSmoke" class="mini" aria-label="Smoke speed" hidden>
+          <option value="1" selected>Real time</option>
+          <option value="10">Slow motion 1:10</option>
+          <option value="100">Slow motion 1:100</option>
+          <option value="1000">Slow motion 1:1000</option>
+        </select>
+      </div>
+      <div class="field" id="fieldBox">
+        <canvas id="fieldCv" aria-label="Flow field around the wing section"></canvas>
+        <div class="tag tl" id="caseTag">—</div>
+        <div class="tag tr">Flow →</div>
+        <div class="tag bl" id="probeTag">Hover to probe · scroll to zoom · drag to pan</div>
+      </div>
+      <div class="scalebar"><span id="cbMin">0</span><div class="bar" id="cbBar"></div><span id="cbMax">1</span></div>
+      <div class="player" id="player" hidden>
+        <button class="btn" id="btnPlay">Play</button>
+        <input type="range" id="rngPlay" min="0" max="1000" step="1" value="0" aria-label="Movie time">
+        <span class="ptime" id="playTime">—</span>
+        <select id="selPlaySpeed" aria-label="Playback speed">
+          <option value="100">Slow motion 1:100</option>
+          <option value="300" selected>Slow motion 1:300</option>
+          <option value="1000">Slow motion 1:1000</option>
+          <option value="3000">Slow motion 1:3000</option>
+        </select>
+        <label class="check"><input type="checkbox" id="chkLoop" checked> Loop</label>
+        <button class="btn" id="btnVideo">Save video</button>
+      </div>
+
+      <div class="status">
+        <span class="pill idle" id="pill">Idle</span>
+        <span class="meta" id="statusMeta">—</span>
+      </div>
+
+      <div class="results">
+        <div class="ro"><span class="k" id="kCl">Lift coeff. C<sub>L</sub></span><span class="v" id="rCl">—</span><span class="n" id="nCl">per unit span</span></div>
+        <div class="ro"><span class="k">Drag coeff. C<sub>D</sub></span><span class="v" id="rCd">—</span><span class="n" id="nCd">pressure + friction</span></div>
+        <div class="ro"><span class="k">L / D</span><span class="v" id="rLD">—</span><span class="n" id="nLD">efficiency</span></div>
+        <div class="ro"><span class="k">C<sub>M</sub> about c/4</span><span class="v" id="rCm">—</span><span class="n">positive nose-up</span></div>
+        <div class="ro"><span class="k" id="kLift">Lift per metre span</span><span class="v" id="rL">—</span><span class="n" id="nL">—</span></div>
+        <div class="ro"><span class="k">Drag per metre span</span><span class="v" id="rD">—</span><span class="n" id="nD">—</span></div>
+        <div class="ro"><span class="k" id="kYp">Wall y⁺</span><span class="v" id="rYp">—</span><span class="n" id="nYp">target ≈ 1</span></div>
+        <div class="ro"><span class="k">Separation</span><span class="v" id="rSep">—</span><span class="n" id="nSep">—</span></div>
+      </div>
+
+      <div class="results" id="uResults" hidden>
+        <div class="ro"><span class="k" id="uKcl">C<sub>L</sub> fluctuation</span><span class="v" id="uRms">—</span><span class="n" id="uRmsN">RMS</span></div>
+        <div class="ro"><span class="k">C<sub>D</sub> fluctuation</span><span class="v" id="uRmsD">—</span><span class="n" id="uRmsDN">RMS</span></div>
+        <div class="ro"><span class="k">Shedding frequency</span><span class="v" id="uF">—</span><span class="n" id="uFN">from lift oscillation</span></div>
+        <div class="ro"><span class="k">Strouhal number</span><span class="v" id="uSt">—</span><span class="n">f · c · sin α / U</span></div>
+      </div>
+
+      <div class="plots">
+        <figure>
+          <figcaption><span>Surface pressure, −C<sub>p</sub> up</span><span class="key"><span><i class="sw" style="background:var(--accent)"></i>upper</span><span><i class="sw" style="background:var(--series2)"></i>lower</span></span></figcaption>
+          <canvas id="cpCv" aria-label="Surface pressure distribution"></canvas>
+        </figure>
+        <figure>
+          <figcaption><span>Skin friction C<sub>f</sub></span><span class="key"><span><i class="sw" style="background:var(--accent)"></i>upper</span><span><i class="sw" style="background:var(--series2)"></i>lower</span></span></figcaption>
+          <canvas id="cfCv" aria-label="Skin friction distribution with separation points"></canvas>
+        </figure>
+        <figure class="wide">
+          <figcaption><span id="convTitle">Convergence</span><span class="key" id="convKey"><span><i class="sw" style="background:var(--muted)"></i>continuity residual</span><span><i class="sw" style="background:var(--accent)"></i>C<sub>L</sub></span></span></figcaption>
+          <canvas id="convCv" aria-label="Convergence history"></canvas>
+        </figure>
+      </div>
+
+      <figure id="polarFig" hidden>
+        <figcaption><span>Polar sweep</span><span class="key" id="polarKey">—</span></figcaption>
+        <canvas id="polarCv" aria-label="Lift and drag polar"></canvas>
+        <div class="tablewrap"><table id="polarTable"><thead><tr><th>α (°)</th><th>C<sub>L</sub></th><th>C<sub>D</sub></th><th>C<sub>D,p</sub></th><th>C<sub>D,f</sub></th><th>L/D</th><th>C<sub>M</sub></th><th>Sep. x/c</th><th>Iterations</th></tr></thead><tbody></tbody></table></div>
+      </figure>
+    </div>
+
+    <aside class="rack" aria-label="Case set-up">
+      <div class="group">
+        <h2>Section</h2>
+        <div class="row">
+          <label for="selSec">Family</label>
+          <select id="selSec">
+            <option value="naca" selected>NACA 4-digit</option>
+            <optgroup label="Transonic, published coordinates">
+              <option value="RAE2822">RAE 2822</option>
+              <option value="SC20412">NASA SC(2)-0412</option>
+              <option value="SC20612">NASA SC(2)-0612</option>
+              <option value="SC20714">NASA SC(2)-0714</option>
+              <option value="NLR7301">NLR 7301</option>
+              <option value="64A010">NACA 64A010</option>
+              <option value="64A109">NACA 64A109</option>
+            </optgroup>
+            <optgroup label="Laminar flow and low Reynolds number">
+              <option value="NLF0416">NASA NLF(1)-0416</option>
+              <option value="E387">Eppler 387</option>
+            </optgroup>
+            <optgroup label="Supersonic, sharp edges">
+              <option value="DW">Double wedge (diamond)</option>
+              <option value="BC">Biconvex (circular arc)</option>
+              <option value="WG">Wedge with blunt base</option>
+            </optgroup>
+            <optgroup label="Bluff body">
+              <option value="CY">Circle (cylinder)</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="row" id="rowCode">
+          <label for="inCode">NACA 4-digit<span class="val" id="codeInfo"></span></label>
+          <input type="text" id="inCode" value="6410" maxlength="4" inputmode="numeric" autocomplete="off">
+        </div>
+        <p class="note" id="secNote" hidden></p>
+        <canvas id="secCv" class="secprev" aria-label="Section shape preview"></canvas>
+        <div id="supRows" hidden>
+          <div class="row">
+            <label for="rngSt"><span id="lblSt">Thickness</span><output id="outSt">6 %</output></label>
+            <input type="range" id="rngSt" min="2" max="12" step="0.5" value="6">
+          </div>
+          <div class="row" id="rowSx">
+            <label for="rngSx">Shoulder position<output id="outSx">50 % chord</output></label>
+            <input type="range" id="rngSx" min="30" max="70" step="5" value="50">
+          </div>
+        </div>
+        <div id="nacaRows">
+        <div class="row">
+          <label for="rngM">Maximum camber<output id="outM">6 %</output></label>
+          <input type="range" id="rngM" min="0" max="9" step="1" value="6">
+        </div>
+        <div class="row">
+          <label for="rngPc">Camber position<output id="outPc">40 % chord</output></label>
+          <input type="range" id="rngPc" min="1" max="9" step="1" value="4">
+        </div>
+        <div class="row">
+          <label for="rngT">Thickness<output id="outT">10 %</output></label>
+          <input type="range" id="rngT" min="6" max="30" step="1" value="10">
+        </div>
+        </div>
+        <label class="check"><input type="checkbox" id="chkInv"> Inverted, producing downforce</label>
+        <div class="row" id="rowTE">
+          <label for="selTE">Trailing edge<span class="val" id="teInfo"></span></label>
+          <select id="selTE">
+            <option value="0">Sharp (knife edge)</option>
+            <option value="0.0025">Blunt · 0.25 % chord</option>
+            <option value="0.005" selected>Blunt · 0.5 % chord</option>
+            <option value="0.01">Blunt · 1 % chord</option>
+            <option value="pub" id="optTEpub" hidden>As published</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="rngA">Angle of attack<output id="outA">15.0°</output></label>
+          <input type="range" id="rngA" min="-8" max="30" step="0.5" value="15">
+        </div>
+      </div>
+      <div class="group">
+        <h2>Flow</h2>
+        <div class="row">
+          <label for="rngV">Speed<output id="outV">300 km/h</output></label>
+          <input type="range" id="rngV" min="50" max="2500" step="0.5" value="300">
+        </div>
+        <div class="row">
+          <label for="inMach">Mach number<span class="val" id="machInfo"></span></label>
+          <input type="number" id="inMach" min="0.04" max="2" step="0.01" value="0.245">
+        </div>
+        <div class="row">
+          <label for="selComp">Air</label>
+          <select id="selComp">
+            <option value="1" selected>Compressible (all speeds)</option>
+            <option value="0">Incompressible (Mach 0 limit)</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="rngC">Chord<output id="outC">0.30 m</output></label>
+          <input type="range" id="rngC" min="0" max="1000" step="1" value="239" title="Logarithmic: 0.1 m (small wings) to 10 m (airliner wing root)">
+        </div>
+        <dl class="facts">
+          <dt>Reynolds number</dt><dd id="fRe">—</dd>
+          <dt>Dynamic pressure</dt><dd id="fQ">—</dd>
+        </dl>
+      </div>
+      <div class="group">
+        <h2>Mesh</h2>
+        <div class="row">
+          <label for="selMesh">Resolution</label>
+          <select id="selMesh">
+            <option value="128">Coarse · 128 × 64 cells</option>
+            <option value="192" selected>Medium · 192 × 96 cells</option>
+            <option value="256">Fine · 256 × 128 cells</option>
+            <option value="384">Ultrafine · 384 × 192 cells (slow)</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="selTurb">Turbulence model</label>
+          <select id="selTurb">
+            <option value="sa" selected>Spalart–Allmaras (1 equation)</option>
+            <option value="sst">k-ω SST (2 equations)</option>
+            <option value="sstg">k-ω SST + γ transition (3 equations)</option>
+          </select>
+        </div>
+        <div class="row" id="rowTu" hidden>
+          <label for="selTu" title="Turbulence intensity of the oncoming flow. It sets where natural transition starts; below about 0.2 % the model barely responds to it.">Free-stream turbulence</label>
+          <select id="selTu">
+            <option value="0.0005">0.05 % · calm air, quiet tunnel</option>
+            <option value="0.001" selected>0.1 % · free flight</option>
+            <option value="0.0015">0.15 % · NASA verification cases</option>
+            <option value="0.003">0.3 % · good wind tunnel</option>
+            <option value="0.01">1 % · gusty air, road vehicle</option>
+            <option value="0.03">3 % · turbomachinery, wake of a car</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="selAdapt" title="Rebuilds the mesh after a steady solution: finer in the wake, shear layers and vortices, and across shocks when the flow is supersonic anywhere">Adapt to the flow</label>
+          <select id="selAdapt">
+            <option value="0" selected>Off</option>
+            <option value="1">1 pass</option>
+            <option value="2">2 passes</option>
+          </select>
+        </div>
+        <dl class="facts">
+          <dt>First cell height</dt><dd id="fDs">—</dd>
+          <dt>Growth ratio</dt><dd id="fGr">—</dd>
+          <dt>Cells</dt><dd id="fCells">—</dd>
+          <dt>Far-field radius</dt><dd>40 chords</dd>
+        </dl>
+      </div>
+      <div class="group">
+        <h2>Solve</h2>
+        <div class="row">
+          <label for="selTol">Convergence<span class="val" id="tolInfo"></span></label>
+          <select id="selTol">
+            <option value="5">Quick · ±0.1% C_L, ±1 drag count</option>
+            <option value="2.5" selected>Standard</option>
+            <option value="1">Strict · validation quality</option>
+          </select>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="btnSolve">Solve</button>
+          <button class="btn" id="btnPause" disabled>Pause</button>
+          <button class="btn" id="btnReset" title="Discard the current flow field; the next solve starts from uniform flow">Reset flow</button>
+        </div>
+        <label class="check" title="Otherwise a new angle of attack continues from the previous solution"><input type="checkbox" id="chkFresh"> Always start from uniform flow</label>
+        <label class="check"><input type="checkbox" id="chkUrans"> Unsteady (URANS)</label>
+        <div class="pair" id="uransOpts" hidden>
+          <label>Time step<select id="selDt"><option value="0.04">0.04 c/U</option><option value="0.02" selected>0.02 c/U</option><option value="0.01">0.01 c/U</option><option value="0.005">0.005 c/U</option><option value="0.0025">0.0025 c/U</option></select></label>
+          <label>Duration<select id="selTend"><option value="10">10 c/U</option><option value="20" selected>20 c/U</option><option value="40">40 c/U</option></select></label>
+          <label>Inner its<select id="selInner"><option value="10">max 10</option><option value="15" selected>max 15</option><option value="25">max 25</option></select></label>
+        </div>
+        <div class="pair two" id="uransStart" hidden>
+          <label>Start<select id="selStart"><option value="rest" selected>from rest</option><option value="current">from current flow</option></select></label>
+          <label>Start-up gust<select id="selGust"><option value="1" selected>±1° (recommended)</option><option value="0">none</option></select></label>
+        </div>
+        <label class="check" id="recRow" hidden><input type="checkbox" id="chkRec"> Record movie</label>
+        <div class="pair two" id="recOpts" hidden>
+          <label>Frame every<select id="selRecEvery"><option value="2">0.04 c/U</option><option value="4" selected>0.08 c/U</option><option value="8">0.16 c/U</option></select></label>
+          <label>Record<select id="selRecWin"><option value="half" selected>second half</option><option value="all">whole run</option></select></label>
+        </div>
+        <p class="note" id="solveNote">Changing the angle continues from the current solution, unless you reset the flow or tick “Always start from uniform flow”. Changing anything else rebuilds the mesh and starts from uniform flow.</p>
+      </div>
+      <div class="group">
+        <h2>Polar sweep</h2>
+        <div class="pair">
+          <label>From °<input type="number" id="swFrom" value="0" step="1"></label>
+          <label>To °<input type="number" id="swTo" value="12" step="1"></label>
+          <label>Step °<input type="number" id="swStep" value="2" step="0.5" min="0.5"></label>
+        </div>
+        <button class="btn" id="btnSweep">Run sweep</button>
+      </div>
+      <div class="group">
+        <h2>Validation</h2>
+        <p class="note">NASA Turbulence Modeling Resource, NACA 0012 with a sharp trailing edge at Re = 6 million, α = 10°, SA model on very fine grids: <b>C<sub>L</sub> ≈ 1.091, C<sub>D</sub> ≈ 0.0123</b>.</p>
+        <button class="btn" id="btnVal">Load validation case</button>
+      </div>
+    </aside>
+  </div>
+
+  <section class="method">
+    <div>
+      <h3>What is solved</h3>
+      <p>The steady, incompressible Reynolds-averaged Navier–Stokes equations. Turbulence enters only through an eddy viscosity ν<sub>t</sub>. The default Spalart–Allmaras model computes it from one extra transport equation for ν̃:</p>
+      <div class="eq">∇·(u u) = −∇p/ρ + ∇·[(ν + ν_t) ∇u]      ∇·u = 0
+∇·(u ν̃) = c_b1 S̃ ν̃ − c_w1 f_w (ν̃/d)² + (1/σ)[∇·((ν+ν̃)∇ν̃) + c_b2 |∇ν̃|²]
+ν_t = ν̃ f_v1</div>
+      <p>The alternative k-ω SST model (Menter 2003) transports the turbulent kinetic energy k and the specific dissipation rate ω. It blends k-ω near the wall with k-ε in the outer flow (blending function F₁), and limits ν<sub>t</sub> where the strain rate is high (a₁ = 0.31). That limiter makes it react more strongly to adverse pressure gradients, so it usually predicts trailing-edge separation earlier than SA. Production is capped at 10 β* k ω to avoid spurious turbulence at the stagnation point, ω is fixed at the near-wall solution 6ν/(β₁y²) in the wall cells, and small ambient source terms keep the free-stream values (Tu = 0.1 %, ω = 5 U/c) from decaying across the domain.</p>
+      <div class="eq">∇·(u k) = min(ν_t S², 10 β* k ω) − β* k ω + ∇·[(ν + σ_k ν_t) ∇k]
+∇·(u ω) = γ S² − β ω² + ∇·[(ν + σ_ω ν_t) ∇ω] + 2 (1 − F₁) σ_ω2 ∇k·∇ω / ω
+ν_t = a₁ k / max(a₁ ω, S F₂)</div>
+      <p>Where the two models disagree, the result depends on the turbulence model, which is useful to know near stall. In deep stall (beyond about 25° on a cambered section) steady RANS can settle on different solutions depending on the iteration history; use the unsteady mode there.</p>
+      <p>With SA and SST the boundary layer is fully turbulent from the leading edge; “SST + γ transition” adds a laminar run and its transition (see below). The wall is resolved down to y⁺ ≈ 1 with no wall functions. Freestream ν̃ = 3ν for SA. The far-field boundary sits 40 chords away and includes the point-vortex velocity of the current lift, so circulation does not bias C<sub>L</sub>.</p>
+      <p>By default the air is compressible, so the same solver covers road speeds, transonic flow with shocks and supersonic flow (up to Mach 2). Even at 300 km/h (M ≈ 0.25) this matters near stall: on the default case at 15° the suction peak reaches a local Mach number of about 0.87, and C<sub>L</sub> comes out about 3.5 % lower and C<sub>D</sub> nearly 30 % higher than in incompressible flow. "Incompressible" is the Mach 0 limit of the same equations.</p>
+      <div class="eq">ρ = (1 + γM²p) / T          T = 1 + (γ−1)M² (h₀ − (|u|² − 1)/2)
+∇·(ρu) = 0   ∇·(ρu u) = −∇p + ∇·[(μ + ρν_t) ∇u]   μ = μ(T) (Sutherland)</div>
+      <p>Non-dimensional with chord, U∞, ρ∞ and T∞; p is the pressure relative to p∞ in units of ρ∞U∞², h₀ the total enthalpy relative to its freestream value. In a steady flow with an adiabatic wall, h₀ stays at its freestream value (exact for Prandtl number 1, a standard approximation), also across shocks; in URANS it is transported with the ∂p/∂t term. Validation: at α = 2° on NACA 0012, C<sub>L</sub> rises by 4.7 % at M 0.3 and 16 % at M 0.5 (Prandtl–Glauert 4.8 % and 15.5 %); at M 1.5 on NACA 0006 C<sub>L</sub> is 0.121 against 0.125 from linear supersonic theory. NACA 0012 at M 0.8, α 1.25°, Re 9 million (SA) gives C<sub>L</sub> 0.256 and C<sub>D</sub> 0.026 with an upper-surface shock at about 55 % chord and shock-induced separation behind it.</p>
+    </div>
+    <div>
+      <h3>How it is solved</h3>
+      <ol>
+        <li>Sections: NACA 4-digit from the analytic formula, or a built-in section (transonic: RAE 2822, NASA SC(2)-0412, -0612 and -0714, NLR 7301, NACA 64A010, NACA 64A109; laminar flow and low Reynolds number: NASA NLF(1)-0416, Eppler 387) from the published coordinates in the UIUC Airfoil Coordinates Database. The 64A109 is not in the database; it is built from the published 64A210 by halving the mean-line ordinates (design C<sub>L</sub> 0.2 → 0.1) and scaling the thickness by 0.9, which is how the 6A series is defined (the published 64A410 camber is exactly twice the 64A210's). Each side is fitted with a cubic spline in √x, which stays smooth through the round leading edge. The published trailing-edge gap is removed with a linear thickness ramp and added back by the trailing-edge setting, so “As published” gives the published shape. Behind the concave aft lower surface of the supercritical sections the grid lines converge; a layer where they would cross is rebuilt with more smoothing. RAE 2822 check (Medium mesh, SA, Re 6.5 million, corrected angles): case 6, M 0.725, α 2.31°: C<sub>L</sub> 0.742, C<sub>D</sub> 0.0116 (experiment 0.743, 0.0127); case 9, M 0.734, α 2.79°: C<sub>L</sub> 0.821, C<sub>D</sub> 0.0192 (experiment 0.803, 0.0168).</li>
+        <li>Transition (SST + γ): Menter, Smirnov, Liu &amp; Avancha (2015), a one-equation intermittency model on top of SST. γ is transported with production 100 S γ(1−γ) F<sub>onset</sub> and destruction 0.06 Ω γ F<sub>turb</sub>(50γ−1); onset where the vorticity Reynolds number d²S/ν exceeds 2.2 Re<sub>θc</sub>, with Re<sub>θc</sub> = 100 + 1000 exp(−Tu<sub>L</sub> F<sub>PG</sub>) from the local turbulence intensity Tu<sub>L</sub> = 100√(2k/3)/(ωd) and a pressure-gradient parameter from the wall-normal derivative of the wall-normal velocity. γ multiplies the k production, the k destruction keeps at least 10 %, a limiter term speeds up separation-induced transition, and SST's F1 stays 1 in the laminar layer. Free stream: Tu as chosen, νt/ν = 1, held by SST's sustaining terms; production uses S·Ω (Kato–Launder), so stagnation points do not generate turbulence. The model is bistable: a turbulent boundary layer sustains itself wherever it is. The start-up transient of a run would trip it near the leading edge, so for the first 500 iterations production is held off and a viscosity floor (50 ν) keeps the not-yet-turbulent flow steady; near the wall the floor ramps out over 300 iterations so the boundary layer reaches its laminar thickness, then γ is released. The “Transition x/c” tile and the T marks on the C<sub>f</sub> plot show where the boundary layer first carries eddy viscosity (νt/ν &gt; 5). Checks (Medium / Fine mesh, steady): NACA 0012, Re 3 million, α 0°: transition at 0.44 chord on both sides, C<sub>D</sub> 0.0057 (fully turbulent SST 0.0088); NASA NLF(1)-0416, Re 4 million, Tu 0.15 %, α 0°: transition 0.35–0.36 upper, 0.39–0.42 lower, against 0.41 and 0.52 that NASA imposes for this case in its transition-model verification (Hildebrand et al. 2023), C<sub>D</sub> 0.0064–0.0062 (fully turbulent 0.0093); at α 5° C<sub>D</sub> 0.0082–0.0075 (fully turbulent 0.0106). So the model finds the laminar run but places transition about 0.05–0.1 chord too early on these meshes; the published verifications needed several hundred thousand cells to converge transition. Below Tu ≈ 0.2 % the model hardly responds to Tu. Use it for natural-laminar-flow sections, low Reynolds numbers and the drag crisis of a cylinder; for wind-tunnel data taken with trip strips (RAE 2822, most transonic tests) fully turbulent SA or SST is the fair comparison.</li>
+        <li>Circle: diameter = chord, nodes evenly spaced in angle, plain radial grid lines (no wake steering). Fully turbulent models give a supercritical-like C<sub>D</sub> ≈ 0.5 at Re 100 000–200 000, where a real cylinder has a laminar separation and C<sub>D</sub> ≈ 1.2; with the transition model the steady C<sub>D</sub> at Re 200 000 rises to 0.82. The flow is unsteady, so use URANS for the shedding and its mean drag.</li>
+        <li>Supersonic sections: double wedge (diamond, shoulder 30–70 % chord), biconvex (two circular arcs) and a wedge with a flat, blunt base, all defined exactly from their geometry; the shoulder corner of the double wedge is placed on a mesh node so it is not cut off. The wedge's base is built like a blunt trailing edge, with up to twice as many base nodes for bases thicker than 2 % chord. Check against linear (Ackeret) theory at M 2, α 2°, 6 % thick, Medium mesh, SA: double wedge C<sub>L</sub> 0.0814, pressure drag 0.0112 (theory 0.0806, 0.0111; at α 0°: 0.00832 against 0.00831); biconvex pressure drag 0.0141 (theory 0.0139). In supersonic flow the pressure drag of these sections is almost all wave drag; the entropy-based wave-drag estimate is not shown there, since near the section most of the wave energy is still in the pressure field rather than in entropy. A supersonic run first holds Mach 0.05 for 30 iterations, so the start-up overshoot at sharp corners (up to ~30 × U∞ at a base corner) decays before the Mach number is ramped up.</li>
+        <li>Mesh: an O-grid marched out from the surface along smoothed normals, first cell sized for y⁺ ≈ 1 from a flat-plate skin-friction estimate, geometric growth to 40 chords. By default the trailing edge is blunt, with a few mesh points across its base, so a band of grid lines runs straight downstream into the wake instead of fanning out from a single point. Behind the trailing edge the grid lines of a band of surface nodes (±1/10 of the ring for a sharp trailing edge, ±1/16 plus the base for a blunt one) are steered downstream, so the wake is covered by grid lines running with it instead of a fan from one point: at x/c = 1.5 the cross-stream spacing on the wake centreline is about 0.015 c instead of 0.07 c on the Medium mesh. For a sharp trailing edge this moved NACA 0012 at α 10°, Re 6 million from C<sub>L</sub> 1.098 to 1.090 (Medium) and halved the Medium-to-Ultrafine difference.</li>
+        <li>Finite volumes: cell-centred, second-order upwind convection for momentum (deferred correction, bounded), first-order upwind for ν̃, k and ω, central diffusion.</li>
+        <li>Pressure–velocity coupling: SIMPLEC with Rhie–Chow interpolation; under-relaxation 0.95 for velocity in steady runs with SA and 0.9 with SST (0.85 in URANS, and as an automatic restart if a steady run diverges), 1.0 for pressure, 0.8 for ν̃. The Rhie–Chow smoothing is fixed, so the converged answer does not depend on the relaxation factors.</li>
+        <li>Linear systems: line-by-line tridiagonal solves, alternating wall-normal and periodic circumferential lines. The pressure-correction equation uses an agglomeration multigrid V-cycle (2 × 2 cells merged per level, down to 12 × 6 cells) with these line solves as the smoother, so pressure errors spanning the whole domain are removed in one cycle instead of creeping outwards one cell per sweep.</li>
+        <li>Unsteady mode (URANS): dual time stepping. Each physical step adds a second-order backward (BDF2) time derivative to the momentum and ν̃ equations and is converged with inner SIMPLEC iterations until the mass imbalance drops twentyfold. The first half of the run is treated as start-up; means, RMS and shedding frequency come from the second half. By default the run starts from rest (uniform flow, as if the wing were suddenly set moving) and the inflow angle swings +1° and −1° over the first 1.5 c/U. A converged steady solution has nothing left to disturb it, so without this kick a flow that could shed vortices may stay steady. If the run still settles, the URANS solution at that angle really is steady: the turbulence model's eddy viscosity damps the shear-layer instability that sheds vortices, which on this kind of section typically happens only well past stall.</li>
+        <li>Forces: surface pressure and wall shear integrated over the section. A case counts as converged when the average C<sub>L</sub> and C<sub>D</sub> over the last 100 iterations differ from the 100 before by less than the chosen tolerance; Strict means 2×10⁻⁴ (relative) in C<sub>L</sub> and 2×10⁻⁵ in C<sub>D</sub>, Standard 2.5× and Quick 5× looser. Reported forces are that 100-iteration average.</li>
+        <li>Adaptive mesh (optional): after a steady solution, the mesh is rebuilt with the same topology and the solution is interpolated onto it. The indicator is the change of total pressure from cell to cell in each grid direction: it is large in the boundary layer, the shear layers, the wake and vortex cores, but not where the outer flow merely accelerates. Rings are pulled into these regions (up to about 4 times finer), paid for by up to 25 % more rings; behind the trailing edge the grid lines of a ±27° sector are also pulled into the wake. The wall ring and the near-wall rings stay as they are, so y⁺ is unchanged, and the new node positions are smoothed with a stiffness that grows where neighbouring grid lines are close, so cells stay as orthogonal as in the base mesh. The intermediate solutions stop after at most 1,500 iterations; the last one is converged normally. Each new angle of attack, including every point of a polar sweep, is adapted again. On the default case (10°) it lowers C<sub>D</sub> by about 2 % towards the Ultrafine value and leaves C<sub>L</sub> unchanged; in stall (20°) C<sub>L</sub> moves about a third of the way from the Medium to the Fine result. In compressible flow the indicator uses the isentropic total pressure. When the flow is supersonic anywhere, shocks are refined too: a pressure sensor, the second difference of pressure along each grid direction divided by the local pressure, marks them (a captured shock is a jump over a few cells, so the sensor stays large however fine the cells get, while smooth expansions fade). Shock weights go up to 6 times finer and are smoothed mostly along the shock; the whole ring is redistributed, anchored at the leading edge, and grid lines may move from 0.03 chord above the wall (0.4 chord without shocks). RAE 2822 at M 0.734, two passes: the upper-surface shock is about half as thick as on the base mesh; at M 1.42 the bow shock and the trailing-edge shocks sharpen similarly. The wave-drag estimate is capped at the pressure drag, since entropy from the wake can leak into it where trailing-edge shocks border the wake.</li>
+        <li>Compressible flow: the same SIMPLEC scheme in its all-speed form. Mass fluxes use a bounded upwind-biased face density; the pressure correction also corrects the density (∂ρ/∂p = γM²/T), which adds a convective term to its equation: it vanishes at low speed and carries corrections downstream in supersonic regions, which is what lets shocks form. The far field follows the characteristics: subsonic inflow fixes velocity and temperature, subsonic outflow fixes the pressure, supersonic inflow fixes everything and supersonic outflow nothing; the imposed state includes the point vortex in its Prandtl–Glauert form. Each run from uniform flow ramps the Mach number up over the first 300 iterations, and above Mach 0.6 the velocity relaxation is 0.7. Wave drag is estimated from the entropy the shocks produce (Oswatitsch), integrated over the shock region found with the normal Mach number u·∇p / (a|∇p|) > 1 outside the boundary layer; it is part of the pressure drag and only a rough estimate, since a captured shock smears the entropy over several cells. Simplifications: the viscous stress omits the small dilatation terms, and with strong shocks and shock-induced separation a steady run may keep oscillating without converging. Then use URANS: it settles where the flow is steady (NACA 0012 at M 0.75, α 6°: C<sub>L</sub> 0.473), and shows the shock oscillation where the flow buffets.</li>
+        <li>Velocity vectors: arrows on a regular grid of the view (every 14 pixels), with the velocity interpolated from the mesh like the streamlines. Their length grows with the square root of the speed, so the slow flow in vortex cores and recirculation zones, which no streamline from the inflow reaches, still shows its direction.</li>
+        <li>Smoke probe: holding the mouse button releases tracer particles at the pointer, carried with the computed velocity (bilinear interpolation, midpoint steps) at the physical rate of the case, or in slow motion. Joining them in release order draws the smoke filament. At real time and road speed the air crosses the view within a frame, so the filament is shown directly along the streamline through the probe, as a real smoke wand looks to the eye. In a steady solution the filament lies on that streamline; during a URANS run it follows the changing field. Shift-drag still pans the view.</li>
+        <li>Pulses: every 0.2 view widths of free-stream travel, a rake at the left edge of the view releases a row of tracer particles. Each is carried with the interpolated velocity (midpoint steps of a few pixels) and drawn as its own path over the last 0.07 view widths of travel, so the streak length shows the local speed and its curvature the path. In a URANS movie the particles move on movie time through the changing field, so they collect in the shear layers and are caught and carried by the shed vortices; they restart when the movie loops or is scrubbed. In a steady solution they run at a fixed visual rate, with the free stream crossing the view in about 4 seconds.</li>
+        <li>URANS movie: with "Record movie" ticked, the solver stores a compact snapshot (velocity, pressure, eddy viscosity, wall C<sub>p</sub> and C<sub>f</sub>) every few time steps. The player blends linearly between snapshots, so playback is smooth at any slow-motion setting, and the field, the C<sub>p</sub> and C<sub>f</sub> plots, the separation tile and the smoke probe all follow the movie time. Colour scales are frozen on the final field while the player is open. "Save video" renders every frame at its exact movie time and encodes it with WebCodecs into MP4 with H.264 (WebM with VP9 in browsers without an H.264 encoder; 30 frames per second, with the case, time and forces burned in), so the video speed does not depend on how fast the computer draws. The smoke probe keeps releasing smoke at its last position during the export.</li>
+      </ol>
+      <p>It runs in a background thread of your browser. Expect 10–40 seconds per case on the medium mesh, and several minutes on Ultrafine. Beyond about 18° the flow is largely separated, and a steady solver may only reach the iteration limit. Section results are 2D: real wings add tip vortices and induced drag, and F1 wings run in ground effect, which this solver does not model.</p>
+    </div>
+  </section>
+</div>
+
+<script src="sections.js"></script>
+<script>
+(() => {
+"use strict";
+const $ = id => document.getElementById(id);
+const AIR = { rho: 1.225, nu: 1.461e-5, a: 340.3 };   // ISA sea level
+
+/* ---------- inputs ---------- */
+const P = { code: "6410", invert: false, te: 0.005, turb: "sa", tu: 0.001, alpha: 15, kmh: 300, chord: 0.3, mesh: 192, tol: 2.5, adapt: 0, comp: true };
+const field = { key: "speed", view: "section", mesh: false, stream: true, vec: false, sonic: true };
+function U() { return P.kmh / 3.6; }
+function Re() { return U() * P.chord / AIR.nu; }
+function Mach() { return U() / AIR.a; }
+function fmtSci(x) { const e = Math.floor(Math.log10(x)); return `${(x / 10 ** e).toFixed(2)} × 10${sup(e)}`; }
+function sup(n) { const m = "⁰¹²³⁴⁵⁶⁷⁸⁹"; return (n < 0 ? "⁻" : "") + String(Math.abs(n)).split("").map(d => m[d]).join(""); }
+function sgn(x, d) { return isFinite(x) ? (x < 0 ? "−" : "") + Math.abs(x).toFixed(d) : "—"; }
+function codeValid(c) { return !!SECTIONS[c] || !!sharpSection(c) || /^\d{4}$/.test(c) && +c.slice(2) >= 6 && +c.slice(2) <= 30 && (c[0] === "0" || c[1] !== "0"); }
+const secName = c => SECTIONS[c] ? SECTIONS[c].name : sharpSection(c) ? sharpSection(c).name : `NACA ${c}`;
+const secFile = c => (SECTIONS[c] || sharpSection(c)) ? secName(c).toLowerCase().replace(/[^a-z0-9]+/g, "") : `naca${c}`;
+
+function updateFacts() {
+  if (typeof urans !== "undefined") uransNote();
+  $("outA").textContent = `${P.alpha.toFixed(1)}°`;
+  $("outV").textContent = `${P.kmh.toFixed(P.kmh % 1 ? 1 : 0)} km/h`;
+  $("outC").textContent = `${P.chord.toFixed(2)} m`;
+  $("teInfo").textContent = P.te > 0 ? `${(P.te * P.chord * 1000).toFixed(1)} mm` : "";
+  $("fRe").textContent = fmtSci(Re());
+  const M = Mach();
+  if (document.activeElement !== $("inMach")) $("inMach").value = M.toFixed(3);
+  $("machInfo").textContent = !P.comp ? (M > 0.3 ? "too fast for incompressible" : "") : M < 0.7 ? "subsonic" : M < 1.2 ? "transonic" : "supersonic";
+  $("machInfo").style.color = !P.comp && M > 0.3 ? "var(--warn)" : "";
+  $("fQ").textContent = `${(0.5 * AIR.rho * U() ** 2).toFixed(0)} Pa`;
+  const c = P.code, ok = codeValid(c), B = builtinSection(c), Sh = sharpSection(c);
+  $("rowCode").hidden = $("nacaRows").hidden = !!(B || Sh); $("secNote").hidden = !(B || Sh);
+  $("supRows").hidden = !Sh || !!Sh.round; $("rowTE").hidden = !!Sh && (Sh.kind === "WG" || !!Sh.round); $("chkInv").closest("label").hidden = !!Sh;
+  if (Sh && Sh.round) $("secNote").textContent = "Circular cylinder; the chord setting is its diameter, and the Reynolds number is based on it. It sheds a Kármán vortex street at almost any Reynolds number, so use URANS. Fully turbulent models miss the drag crisis (laminar separation, C_D ≈ 1.2, below Re ≈ 300 000); the transition model can capture part of it.";
+  else if (Sh) {
+    $("rowSx").hidden = Sh.kind !== "DW";
+    $("lblSt").textContent = Sh.kind === "WG" ? "Base thickness" : "Thickness";
+    $("outSt").textContent = `${(Sh.t * 100).toFixed(1).replace(/\.0$/, "")} %` + (Sh.kind === "WG" ? ` · wedge angle ${(2 * Math.atan(Sh.t / 2) * 180 / Math.PI).toFixed(1)}°` : "");
+    if (Sh.kind === "DW") $("outSx").textContent = `${(Sh.xs * 100).toFixed(0)} % chord`;
+    $("secNote").textContent = Sh.kind === "DW" ? "Flat faces with sharp leading and trailing edges. At supersonic speed: attached shocks at the nose and tail, expansion fans at the shoulders. Symmetric, so “inverted” does not apply."
+      : Sh.kind === "BC" ? "Two circular arcs with sharp edges, as on thin supersonic wings. The flow expands continuously along the surface between the nose and tail shocks."
+      : "Sharp nose and a flat, blunt base, like the X-15's vertical tail. The base sits in a low-pressure wake, which adds base drag. Below Mach 1 a thick base sheds vortices, so use URANS there.";
+  }
+  if (B) $("secNote").innerHTML = `${B.desc}. Maximum thickness ${(B.tc * 100).toFixed(1)} % at ${(B.xt * 100).toFixed(0)} % chord; published trailing edge ${(B.gap * 100).toFixed(2)} % chord.`;
+  $("optTEpub").hidden = !B || !(B.gap > 1e-4);
+  if (B) $("optTEpub").textContent = `As published · ${(B.gap * 100).toFixed(2)} % chord`;
+  $("inCode").setAttribute("aria-invalid", ok ? "false" : "true");
+  $("codeInfo").textContent = ok ? `camber ${+c[0]}% at ${+c[1] * 10}% · t/c ${+c.slice(2)}%` : "4 digits, thickness 06–30";
+  if (ok && !B) {   // keep the sliders in step with the code
+    const m = +c[0], p = +c[1], t = +c.slice(2);
+    $("rngM").value = m; $("rngT").value = t; if (m > 0) $("rngPc").value = p;
+    $("rngPc").disabled = m === 0;
+    $("outM").textContent = `${m} %`; $("outT").textContent = `${t} %`;
+    $("outPc").textContent = m > 0 ? `${p * 10} % chord` : "— (symmetric)";
+  }
+  drawSection();
+}
+
+/* ---------- worker ---------- */
+let worker = null;
+function startWorker() {
+  worker = new Worker("rans-worker.js");
+  worker.onmessage = onMsg;
+  worker.onerror = e => { setStatus("warn", "Solver failed to load", e.message || ""); };
+}
+let fallbackNote = false, adaptNote = false;
+let grid = null, fields = null, hist = [], last = null, solvedKey = null, running = false, sweep = null, runStartIt = 0;
+const caseKey = () => `${P.code}|${P.invert}|${P.te}|${P.turb}${P.turb === "sstg" ? P.tu : ""}|${Re().toFixed(0)}|${P.mesh}|${P.adapt}|${P.comp}`;
+let adaptedFor = null;   // case key and angle the current adapted mesh was made for
+let freshStart = false;   // "Always start from uniform flow"
+function resetFlow() {
+  if (!worker || !grid) return;
+  sweep = null; worker.postMessage({ type: "reset", alpha: alphaInt() });
+  running = false; $("btnPause").disabled = true; $("btnPause").textContent = "Pause";
+  hist = []; uhist = []; last = null; runStartIt = 0; adaptedFor = null;
+  closePlayer(); player.frames = [];
+  drawConv();
+  setStatus("idle", "Flow reset", "uniform flow · the next solve starts from scratch on the current mesh");
+}
+const alphaInt = () => P.invert ? -P.alpha : P.alpha;
+
+function solve(fromSweep) {
+  if (!codeValid(P.code)) { setStatus("warn", "Check the NACA code", "Use four digits with thickness 06–30, for example 4412."); return; }
+  if (!fromSweep) sweep = null;
+  fallbackNote = false; adaptNote = false;
+  const key = caseKey(), fresh = key !== solvedKey || !grid;
+  if (fresh) {
+    worker.postMessage({ type: "init", p: { code: P.code, invert: P.invert, te: P.te, turb: P.turb, tu: P.turb === "sstg" ? P.tu : undefined, alpha: alphaInt(), Re: Re(), mach: P.comp ? Mach() : 0, NI: P.mesh, NJ: P.mesh / 2, maxIt: 8000, tol: P.tol, adapt: P.adapt } });
+    solvedKey = key; hist = []; grid = null; fields = null; runStartIt = 0; adaptedFor = null;
+  } else if (freshStart) {   // same mesh, but forget the previous flow
+    worker.postMessage({ type: "reset", alpha: alphaInt() });
+    hist = []; runStartIt = 0; adaptedFor = null;
+  } else {
+    worker.postMessage({ type: "alpha", alpha: alphaInt() });
+    runStartIt = last ? last.it : 0;
+  }
+  uMode = urans.on && !fromSweep;
+  closePlayer(); player.frames = [];
+  if (uMode) {
+    uhist = [];
+    const um = { type: "urans", fromRest: urans.fromRest, gust: urans.gust, dt: urans.dt, tEnd: urans.tEnd, maxInner: urans.inner, fieldEvery: 8, recEvery: rec.on ? recSteps() : 0, recFrom: rec.win === "half" ? urans.tEnd / 2 : 0 };
+    // an adapted mesh needs a steady solution first; a new case then still starts impulsively
+    if (P.adapt > 0 && adaptedFor !== `${key}|${alphaInt()}`) worker.postMessage({ type: "run", maxIt: 8000, steady: true, thenUrans: { ...um, fresh } });
+    else worker.postMessage(um);
+  }
+  else worker.postMessage({ type: "run", maxIt: 8000, steady: true });
+  showUransUI();
+  running = true; $("btnPause").disabled = false; $("btnPause").textContent = "Pause";
+  solvedFor = { ...P };
+  setStatus("run", "Solving", "building mesh…");
+  updateCaseTag();
+}
+let solvedFor = { ...P };
+
+function onMsg(e) {
+  const m = e.data;
+  if (m.type === "grid") {
+    smoke.parts = [];
+    if (m.adapted) {   // same case on a new mesh: keep the view, the angle and the colour ranges
+      const [bx, by] = unrotPt(view.cx, view.cy);
+      grid = m; rotateGrid(); [view.cx, view.cy] = rotPt(bx, by);
+      setStatus("run", "Adapting mesh", `pass ${m.adapted} of ${m.passes} · ${m.NJ - 1} rings${m.stats && m.stats.shocks ? " · shocks refined" : ""} · continuing from the interpolated solution`);
+    } else { grid = m; dispAlpha = alphaInt(); rotateGrid(); fitView(field.view); }
+    $("fDs").textContent = `${(m.ds1 * P.chord * 1e6).toFixed(1)} µm`;
+    $("fGr").textContent = m.adapted ? `${m.ratio.toFixed(3)} (base mesh)` : m.ratio.toFixed(3);
+    $("fCells").textContent = `${m.NI} × ${m.NJ - 1}${m.adapted ? ` · adapted, pass ${m.adapted} of ${m.passes}` : ""}`;
+  } else if (m.type === "progress") {
+    last = m.s; hist.push(m.s);
+    if (hist.length > 4000) hist.splice(0, hist.length - 4000);
+    setStatus("run", sweep ? `Sweep · α = ${(sweep.list[sweep.k]).toFixed(1)}°` : uMode ? "Steady solution for the adapted mesh" : grid && grid.adapted ? "Solving on the adapted mesh" : "Solving", `iteration ${m.s.it.toLocaleString("en-US")} · residual ${m.s.resC.toExponential(1)}`);
+    updateResults(); drawConv();
+  } else if (m.type === "fields") {
+    fields = m.f; if (m.s) last = m.s;
+    if (m.s && m.s.alpha !== dispAlpha) {
+      const [bx, by] = unrotPt(view.cx, view.cy);   // keep the same spot of the section centred
+      dispAlpha = m.s.alpha; rotateGrid();
+      [view.cx, view.cy] = rotPt(bx, by);
+    }
+    updateSep(); updateResults(); drawField(); drawCp(); drawCf();
+  } else if (m.type === "frame") {
+    player.frames.push(m);
+  } else if (m.type === "adaptFailed") {
+    adaptNote = true;
+  } else if (m.type === "fallback") {
+    hist = []; runStartIt = 0; fallbackNote = true;
+  } else if (m.type === "uprogress") {
+    last = m.s; for (const r of m.recs) uhist.push(r);
+    const tms = m.s.t * solvedFor.chord / (solvedFor.kmh / 3.6) * 1000;
+    setStatus("run", "Unsteady", `t = ${m.s.t.toFixed(2)} c/U (${tms.toFixed(0)} ms) · step ${m.s.step} · ${m.s.inner} inner iterations`);
+    updateResults(); drawConv();
+  } else if (m.type === "udone") {
+    last = m.s; running = false; $("btnPause").disabled = true;
+    updateResults(); drawConv();
+    const st = uStats();
+    if (m.diverged) setStatus("warn", "Diverged", "Try a smaller time step or the coarse mesh.");
+    else setStatus("ok", "Unsteady run finished", st ? `statistics over t = ${st.t0.toFixed(1)}–${st.t1.toFixed(1)} c/U, ${st.cycles > 0 ? `${st.cycles} lift cycle${st.cycles === 1 ? "" : "s"}${st.cycles < 3 ? " (too few for a reliable frequency)" : ""}` : "no regular oscillation"}${player.frames.length >= 2 ? ` · movie: ${player.frames.length} frames` : ""}` : "");
+    if (!m.diverged && player.frames.length >= 2) openPlayer();
+  } else if (m.type === "done") {
+    if (P.adapt > 0) adaptedFor = `${solvedKey}|${m.s.alpha}`;
+    if (m.next === "urans") { setStatus("run", "Unsteady", "starting on the adapted mesh…"); return; }
+    last = m.s; running = false; $("btnPause").disabled = true;
+    updateResults(); drawConv();
+    const its = m.s.it - runStartIt;
+    if (m.diverged) setStatus("warn", "Diverged", "Try the coarse mesh or a smaller angle of attack.");
+    else if (m.converged) setStatus("ok", "Converged", `${its.toLocaleString("en-US")} iterations · residual ${m.s.resC.toExponential(1)}${fallbackNote ? " · restarted with lower relaxation" : ""}${grid && grid.adapted ? ` · adapted mesh, ${grid.NI} × ${grid.NJ - 1} cells` : ""}${adaptNote ? " · mesh adaptation failed, base mesh kept" : ""}`);
+    else setStatus("warn", "Stopped at iteration limit", `forces still changing slightly · ${m.s.it.toLocaleString("en-US")} iterations`);
+    if (sweep) sweepNext(m);
+  }
+}
+
+function setStatus(kind, label, meta) {
+  const pill = $("pill"); pill.className = `pill ${kind}`; pill.textContent = label; $("statusMeta").textContent = meta;
+}
+/* ---------- URANS ---------- */
+const urans = { on: false, dt: 0.02, tEnd: 20, inner: 15, fromRest: true, gust: true };
+// URANS movie: frames recorded by the worker, replayed with linear blending between frames
+const rec = { on: false, every: 4, win: "half" };
+const player = { frames: [], active: false, playing: false, time: 0, slow: 300, loop: true, raf: 0, last: 0, wall: null, ca: 1, sa: 0, recording: null, pf: null };
+let dlNS = null;   // downloads capability (claude.ai viewer), resolved after load
+let uMode = false, uhist = [];   // uhist rows: [t, cl, cd, cdp, cdf, cm, inner]
+function uStats() {
+  if (uhist.length < 20) return null;
+  const t1 = uhist[uhist.length - 1][0], t0 = t1 / 2, w = uhist.filter(r => r[0] >= t0), n = w.length;
+  const m = [0, 0, 0, 0, 0];
+  for (const r of w) for (let k = 0; k < 5; k++) m[k] += r[k + 1];
+  for (let k = 0; k < 5; k++) m[k] /= n;
+  let vl = 0, vd = 0, lo = Infinity, hi = -Infinity;
+  for (const r of w) { vl += (r[1] - m[0]) ** 2; vd += (r[2] - m[1]) ** 2; lo = Math.min(lo, r[1]); hi = Math.max(hi, r[1]); }
+  const rmsCl = Math.sqrt(vl / n), rmsCd = Math.sqrt(vd / n);
+  const th = 0.3 * rmsCl, ups = []; let state = 0;
+  for (const r of w) { const x = r[1] - m[0]; if (x > th) { if (state === -1) ups.push(r[0]); state = 1; } else if (x < -th) state = -1; }
+  const fstar = ups.length >= 2 && rmsCl > 1e-3 ? (ups.length - 1) / (ups[ups.length - 1] - ups[0]) : null;
+  return { cl: m[0], cd: m[1], cdp: m[2], cdf: m[3], cm: m[4], rmsCl, rmsCd, lo, hi, fstar, t0, t1, cycles: Math.max(0, ups.length - 1) };
+}
+function updateUransTiles(st) {
+  if (!st) { for (const id of ["uRms", "uRmsD", "uF", "uSt"]) $(id).textContent = "—"; return; }
+  const inv = solvedFor.invert, sg = inv ? -1 : 1, U = solvedFor.kmh / 3.6, c = solvedFor.chord;
+  $("uKcl").innerHTML = inv ? "Downforce fluctuation" : "C<sub>L</sub> fluctuation";
+  $("uRms").textContent = `± ${st.rmsCl.toFixed(3)}`;
+  const a = sg * st.lo, b = sg * st.hi;
+  $("uRmsN").textContent = `RMS · range ${Math.min(a, b).toFixed(2)} to ${Math.max(a, b).toFixed(2)}`;
+  $("uRmsD").textContent = `± ${st.rmsCd.toFixed(4)}`;
+  $("uRmsDN").textContent = `RMS · mean ${st.cd.toFixed(4)}`;
+  if (st.fstar) {
+    $("uF").textContent = `${(st.fstar * U / c).toFixed(1)} Hz`;
+    $("uFN").textContent = `${st.fstar.toFixed(3)} per c/U · ${st.cycles} cycle${st.cycles === 1 ? "" : "s"} averaged`;
+    $("uSt").textContent = (st.fstar * Math.abs(Math.sin(solvedFor.alpha * Math.PI / 180))).toFixed(3);
+  } else { $("uF").textContent = "—"; $("uFN").textContent = "no regular oscillation yet"; $("uSt").textContent = "—"; }
+}
+function showUransUI() {
+  $("uResults").hidden = !uMode;
+  $("convTitle").textContent = uMode ? "Time history" : "Convergence";
+  $("convKey").innerHTML = uMode
+    ? `<span><i class="sw" style="background:var(--accent)"></i>${solvedFor.invert ? "−C<sub>L</sub>" : "C<sub>L</sub>"}</span><span><i class="sw" style="background:var(--series2)"></i>C<sub>D</sub></span><span>shaded: averaging window</span>`
+    : `<span><i class="sw" style="background:var(--muted)"></i>continuity residual</span><span><i class="sw" style="background:var(--accent)"></i>C<sub>L</sub></span>`;
+  updateCaseTag();
+}
+function uransNote() {
+  const U = P.kmh / 3.6, ms = urans.dt * P.chord / U * 1000, steps = Math.round(urans.tEnd / urans.dt);
+  $("solveNote").textContent = urans.on
+    ? `Δt = ${ms.toFixed(3)} ms, ${steps.toLocaleString("en-US")} steps covering ${(urans.tEnd * P.chord / U * 1000).toFixed(0)} ms of real time, each with up to ${urans.inner} inner iterations. ${urans.fromRest ? "Starts impulsively from uniform flow, as if the wing were suddenly set moving." : "Continues from the current solution (from uniform flow if the case changed); a converged steady solution may simply stay steady."} Statistics use the second half of the run. Use the Medium mesh or finer: Coarse cannot resolve the shed vortices.${P.adapt ? " With mesh adaptation on, a steady solution and the adaptation passes come first." : ""}${rec.on ? movieNote(steps) : ""}`
+    : "Changing the angle continues from the current solution, unless you reset the flow or tick “Always start from uniform flow”. Changing anything else rebuilds the mesh and starts from uniform flow.";
+}
+function drawUHist() {
+  const cv = $("convCv");
+  const F = plotFrame(cv, { l: 44, r: 52, t: 8, b: 26 }), { ctx, d } = F;
+  if (uhist.length < 2) return;
+  const sg = solvedFor.invert ? -1 : 1, tEnd = Math.max(urans.tEnd, uhist[uhist.length - 1][0]);
+  const X = t => F.l + t / tEnd * (F.r - F.l);
+  let l0 = Infinity, l1 = -Infinity, d0 = Infinity, d1 = -Infinity;
+  for (const r of uhist) { if (r[0] < 0.5 && uhist[uhist.length - 1][0] > 1) continue;   // skip the impulsive-start spike when scaling
+    const l = sg * r[1]; if (l < l0) l0 = l; if (l > l1) l1 = l; if (r[2] < d0) d0 = r[2]; if (r[2] > d1) d1 = r[2]; }
+  const pl = Math.max((l1 - l0) * 0.1, 0.02), pd = Math.max((d1 - d0) * 0.1, 0.002);
+  l0 -= pl; l1 += pl; d0 = Math.max(0, d0 - pd); d1 += pd;
+  const Yl = v => F.b - (v - l0) / (l1 - l0) * (F.b - F.t), Yd = v => F.b - (v - d0) / (d1 - d0) * (F.b - F.t);
+  const st = uStats();
+  if (st) { ctx.fillStyle = css("--line"); ctx.globalAlpha = 0.45; ctx.fillRect(X(st.t0), F.t, X(st.t1) - X(st.t0), F.b - F.t); ctx.globalAlpha = 1; }
+  ctx.strokeStyle = css("--line"); ctx.fillStyle = css("--muted"); ctx.lineWidth = d;
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (const v of axisTicks(l0, l1, 4)) { ctx.beginPath(); ctx.moveTo(F.l, Yl(v)); ctx.lineTo(F.r, Yl(v)); ctx.stroke(); ctx.fillText(v.toFixed(2), F.l - 5 * d, Yl(v)); }
+  ctx.textAlign = "left";
+  for (const v of axisTicks(d0, d1, 4)) ctx.fillText(v.toFixed(d1 < 0.1 ? 3 : 2), F.r + 5 * d, Yd(v));
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (const v of axisTicks(0, tEnd, 5)) ctx.fillText(v.toFixed(0), X(v), F.b + 6 * d);
+  ctx.save(); ctx.textAlign = "right"; ctx.textBaseline = "bottom"; ctx.fillText("t in c/U", F.r - 3 * d, F.b - 3 * d); ctx.restore();
+  const line = (k, sgn, Y, color) => { ctx.beginPath(); uhist.forEach((r, n) => { const px = X(r[0]), py = Y(sgn * r[k]); n ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }); ctx.strokeStyle = color; ctx.lineWidth = 1.6 * d; ctx.stroke(); };
+  ctx.save(); ctx.beginPath(); ctx.rect(F.l, F.t, F.r - F.l, F.b - F.t); ctx.clip();
+  line(2, 1, Yd, css("--series2"));
+  line(1, sg, Yl, css("--accent"));
+  ctx.restore();
+  if (st) {
+    ctx.setLineDash([4 * d, 3 * d]); ctx.lineWidth = d;
+    ctx.strokeStyle = css("--accent"); ctx.beginPath(); ctx.moveTo(X(st.t0), Yl(sg * st.cl)); ctx.lineTo(X(st.t1), Yl(sg * st.cl)); ctx.stroke();
+    ctx.strokeStyle = css("--series2"); ctx.beginPath(); ctx.moveTo(X(st.t0), Yd(st.cd)); ctx.lineTo(X(st.t1), Yd(st.cd)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (player.active) {   // where the movie is
+    const x = X(player.time);
+    ctx.strokeStyle = css("--fg"); ctx.lineWidth = 1.5 * d; ctx.beginPath(); ctx.moveTo(x, F.t); ctx.lineTo(x, F.b); ctx.stroke();
+  }
+}
+
+function updateCaseTag() {
+  $("caseTag").textContent = `${secName(solvedFor.code)}${solvedFor.invert ? " inverted" : ""} · α ${solvedFor.alpha.toFixed(1)}° · ${solvedFor.kmh.toFixed(0)} km/h · c ${solvedFor.chord.toFixed(2)} m${uMode ? " · URANS" : ""}`;
+}
+
+function updateResults() {
+  if (!last) return;
+  const st = uMode ? uStats() : null, inv = solvedFor.invert;
+  const s = st ? { ...last, cl: st.cl, cd: st.cd, cdp: st.cdp, cdf: st.cdf, cm: st.cm } : last;
+  if (uMode) updateUransTiles(st);
+  const u = solvedFor.kmh / 3.6, q = 0.5 * AIR.rho * u * u, c = solvedFor.chord;
+  const cl = s.cl;
+  $("kCl").innerHTML = inv ? "Downforce coeff. −C<sub>L</sub>" : "Lift coeff. C<sub>L</sub>";
+  $("rCl").textContent = sgn(inv ? -cl : cl, 4);
+  $("nCl").textContent = `C_L = ${sgn(cl, 4)}`;
+  $("rCd").textContent = sgn(s.cd, 5);
+  $("nCd").textContent = `p ${sgn(s.cdp, 5)} + f ${sgn(s.cdf, 5)}${solvedFor.kmh / 3.6 / AIR.a > 1 ? (/^WG:/.test(solvedFor.code) ? " · p is wave drag plus base drag" : " · almost all of p is wave drag") : s.cdw > 5e-5 ? ` · wave ≈ ${s.cdw.toFixed(4)} of p` : ""}`;
+  $("rLD").textContent = s.cd > 0 ? Math.abs(cl / s.cd).toFixed(1) : "—";
+  $("rCm").textContent = sgn(s.cm, 4);
+  const L = cl * q * c, D = s.cd * q * c;
+  $("kLift").textContent = inv ? "Downforce per metre span" : "Lift per metre span";
+  $("rL").textContent = `${Math.abs(L).toFixed(0)} N`;
+  $("nL").textContent = `≈ ${(Math.abs(L) / 9.81).toFixed(1)} kg per metre`;
+  $("rD").textContent = `${D.toFixed(1)} N`;
+  $("nD").textContent = `power ${(D * u / 1000).toFixed(2)} kW per metre`;
+  const tr = fields && fields.wall && fields.wall.gw ? transitionInfo(fields.wall) : null;
+  if (tr) {   // with the transition model, this tile shows where the boundary layer turns turbulent
+    const fx = v => v === null ? "lam." : v <= 0.03 ? "LE" : v.toFixed(2);
+    $("kYp").textContent = "Transition x/c"; $("rYp").textContent = `${fx(tr.upper)} · ${fx(tr.lower)}`; $("rYp").style.fontSize = "17px";
+    $("nYp").textContent = `${P.invert ? "suction / pressure" : "upper / lower"} · wall y⁺ ${s.ypMax.toFixed(2)}`;
+  } else {
+    $("kYp").textContent = "Wall y⁺"; $("rYp").textContent = s.ypMax.toFixed(2); $("rYp").style.fontSize = "";
+    $("nYp").textContent = `mean ${s.ypMean.toFixed(2)} · target ≈ 1`;
+  }
+}
+
+/* ---------- colour ---------- */
+function buildLUT(stops) {
+  const lut = new Array(256);
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255; let a = 0;
+    while (a < stops.length - 2 && t > stops[a + 1][0]) a++;
+    const [t0, c0] = stops[a], [t1, c1] = stops[a + 1], f = (t - t0) / (t1 - t0);
+    lut[i] = `rgb(${c0.map((v, k) => Math.round(v + (c1[k] - v) * f)).join(",")})`;
+  }
+  return lut;
+}
+const MAPS = {
+  speed: [[0, [16, 24, 48]], [0.3, [38, 92, 160]], [0.55, [96, 176, 196]], [0.75, [232, 210, 120]], [1, [214, 78, 36]]],
+  cp:    [[0, [40, 70, 170]], [0.35, [120, 170, 225]], [0.5, [236, 238, 240]], [0.7, [238, 160, 110]], [1, [170, 40, 30]]],
+  ux:    [[0, [120, 20, 150]], [0.299, [228, 160, 236]], [0.3, [236, 240, 244]], [0.6, [120, 168, 210]], [1, [24, 52, 110]]],
+  nut:   [[0, [244, 246, 248]], [0.3, [190, 210, 228]], [0.6, [110, 140, 190]], [0.85, [70, 60, 130]], [1, [40, 20, 70]]],
+  // Mach: blues below 1, warm colours above; M = 1 sits at 0.6 of the bar
+  mach:  [[0, [16, 24, 48]], [0.3, [38, 92, 160]], [0.59, [150, 210, 225]], [0.61, [246, 226, 140]], [0.8, [226, 120, 50]], [1, [150, 24, 30]]],
+  schl:  [[0, [246, 246, 242]], [0.35, [180, 180, 176]], [0.7, [80, 80, 82]], [1, [12, 12, 16]]],
+  gamma: [[0, [40, 96, 170]], [0.3, [120, 180, 220]], [0.6, [240, 226, 170]], [1, [200, 70, 40]]]
+};
+const LUT = Object.fromEntries(Object.entries(MAPS).map(([k, s]) => [k, buildLUT(s)]));
+
+let range = { speed: [0, 1.8], cp: [-2, 1], nut: [0, 3], ux: [-0.2, 1.8], mach: [0, 1.5], schl: [0, 1] };
+function computeRanges() {
+  if (!fields) return;
+  let cpMin = -1, nmax = 1;
+  for (const v of fields.wall.cp) if (v < cpMin) cpMin = v;
+  for (const v of fields.nutRatio) if (v > nmax) nmax = v;
+  range.cp = [Math.floor(cpMin * 2) / 2, 1];
+  range.nut = [0, Math.max(1, Math.ceil(Math.log10(1 + nmax)))];
+  let smax = 1.2; for (const v of fields.speed) if (v > smax) smax = v;
+  range.speed = [0, Math.ceil(Math.min(smax, 4) * 5) / 5];
+  let umin = -0.1; for (const v of fields.ux) if (v < umin) umin = v;
+  range.ux = [Math.floor(Math.max(umin, -1) * 10) / 10, range.speed[1]];
+  if (fields.mach) {
+    // 99.9th percentile, so a few cells at a sharp base corner (where the flow can expand
+    // to very high Mach numbers) do not wash out the scale
+    const ms = Float32Array.from(fields.mach).sort(), mmax = ms[Math.floor(0.999 * (ms.length - 1))];
+    range.mach = [0, Math.max(1.2, Math.ceil(Math.min(mmax, 4) * 10) / 10)];
+    // schlieren: fixed log scale per case, |∇ρ| referred to 2M² (ρ∞ per chord), so the shading of
+    // the outer flow does not jump between frames; shocks and the boundary layer saturate
+    const Ms = solvedFor.kmh / 3.6 / AIR.a;
+    range.schl = [0, 2 * Ms * Ms];
+  }
+}
+const compFields = () => !!(fields && fields.mach);
+function colorIndex(c) {
+  const k = field.key, f = fields;
+  let t;
+  if (k === "speed") t = f.speed[c] / range.speed[1];
+  else if (k === "cp") { const v = f.cp[c]; t = v >= 0 ? 0.5 + 0.5 * v / range.cp[1] : 0.5 - 0.5 * v / range.cp[0]; }
+  else if (k === "ux") { const v = f.ux[c]; t = v < 0 ? 0.3 * (1 - v / range.ux[0]) : 0.3 + 0.7 * v / range.ux[1]; }
+  else if (k === "mach" && f.mach) { const m = f.mach[c]; t = m < 1 ? 0.6 * m : 0.6 + 0.4 * (m - 1) / (range.mach[1] - 1); }
+  else if (k === "schl" && f.schl) t = Math.log10(1 + f.schl[c] / range.schl[1]) / Math.log10(31);
+  else if (k === "gamma" && f.gamma) t = f.gamma[c];
+  else t = Math.log10(1 + f.nutRatio[c]) / range.nut[1];
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return (t * 255) | 0;
+}
+function updateColorbar() {
+  if (field.key === "none") { $("cbBar").style.background = css("--panel"); $("cbMin").textContent = "No fill"; $("cbMax").textContent = ""; return; }
+  const st = MAPS[field.key];
+  $("cbBar").style.background = `linear-gradient(90deg, ${st.map(([t, c]) => `rgb(${c.join(",")}) ${(t * 100).toFixed(0)}%`).join(", ")})`;
+  if (field.key === "speed") { $("cbMin").textContent = "|u|/U∞ = 0"; $("cbMax").textContent = range.speed[1].toFixed(1); }
+  else if (field.key === "cp") { $("cbMin").textContent = `Cp ${sgn(range.cp[0], 1)}`; $("cbMax").textContent = `+${range.cp[1].toFixed(1)}`; }
+  else if (field.key === "ux") { $("cbMin").textContent = `u∥/U∞ ${sgn(range.ux[0], 1)} reversed`; $("cbMax").textContent = range.ux[1].toFixed(1); }
+  else if (field.key === "mach") { $("cbMin").textContent = "M = 0 · sonic at 60 %"; $("cbMax").textContent = range.mach[1].toFixed(1); }
+  else if (field.key === "schl") { $("cbMin").textContent = "|∇ρ| = 0"; $("cbMax").textContent = "strong (log scale)"; }
+  else if (field.key === "gamma") { $("cbMin").textContent = "γ = 0 laminar · surface: blue laminar, orange turbulent"; $("cbMax").textContent = "1 turbulent"; }
+  else { $("cbMin").textContent = "νt/ν = 0"; $("cbMax").textContent = `10${sup(range.nut[1])}`; }
+}
+
+/* ---------- field view ---------- */
+const fcv = $("fieldCv"), fctx = fcv.getContext("2d");
+const view = { cx: 0.6, cy: 0, s: 1 };   // s: pixels per chord
+// The solver keeps the section fixed and tilts the freestream. For display, rotate
+// everything about the quarter chord so the freestream runs horizontally.
+let dispAlpha = 0, RX = null, RY = null;
+function rotPt(x, y) {
+  const a = dispAlpha * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), xr = x - 0.25;
+  return [0.25 + xr * c + y * s, -xr * s + y * c];
+}
+function unrotPt(x, y) {
+  const a = dispAlpha * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), xr = x - 0.25;
+  return [0.25 + xr * c - y * s, xr * s + y * c];
+}
+function rotateGrid() {
+  if (!grid) return;
+  const n = grid.X.length, a = dispAlpha * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+  RX = new Float32Array(n); RY = new Float32Array(n);
+  for (let k = 0; k < n; k++) {
+    const xr = grid.X[k] - 0.25, y = grid.Y[k];
+    RX[k] = 0.25 + xr * c + y * s; RY[k] = -xr * s + y * c;
+  }
+}
+function fitView(name) {
+  const W = fcv.width, H = fcv.height;
+  const presets = { section: [0.62, 0, 2.2], le: [0.03, 0, 0.16], te: [1.02, 0, 0.16], far: [0.5, 0, 92] };
+  const [cx, cy, w] = presets[name] || presets.section;
+  [view.cx, view.cy] = rotPt(cx, cy); view.s = W / w;
+  if (name === "far") view.s = Math.min(W, H) / 84;
+}
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function drawField() {
+  drawFieldBase(); if (smoke.on || pulse.on) smokeBase(); drawOverlays();
+  if (pulse.on && fields && !(player.recording && player.recording.frames) && pulseRate() > 0) kickSmoke();   // keep the pulses moving
+}
+function drawOverlays() { if (smoke.on) drawSmoke(); if (pulse.on) drawPulses(); if (player.recording) drawMovieOverlay(); }
+function drawFieldBase() {
+  const W = fcv.width, H = fcv.height;
+  fctx.fillStyle = css("--panel"); fctx.fillRect(0, 0, W, H);
+  if (!grid) { drawWaiting(); return; }
+  if (!RX) rotateGrid();
+  const { NI, NJ } = grid, X = RX, Y = RY, NC = NJ - 1;
+  const sx = x => (x - view.cx) * view.s + W / 2, sy = y => (view.cy - y) * view.s + H / 2;
+  if (fields) {
+    if (!player.active) computeRanges();
+    syncCompButtons();
+    updateColorbar();
+  }
+  if (fields && field.key !== "none") {
+    const lut = LUT[field.key], buckets = new Array(256);
+    for (let j = 0; j < NC; j++) for (let i = 0; i < NI; i++) {
+      const ip = (i + 1) % NI, a = j * NI + i, b = j * NI + ip, c = (j + 1) * NI + ip, d = (j + 1) * NI + i;
+      const x0 = sx(X[a]), x1 = sx(X[b]), x2 = sx(X[c]), x3 = sx(X[d]);
+      if ((x0 < 0 && x1 < 0 && x2 < 0 && x3 < 0) || (x0 > W && x1 > W && x2 > W && x3 > W)) continue;
+      const y0 = sy(Y[a]), y1 = sy(Y[b]), y2 = sy(Y[c]), y3 = sy(Y[d]);
+      if ((y0 < 0 && y1 < 0 && y2 < 0 && y3 < 0) || (y0 > H && y1 > H && y2 > H && y3 > H)) continue;
+      const k = colorIndex(j * NI + i);
+      (buckets[k] || (buckets[k] = [])).push(x0, y0, x1, y1, x2, y2, x3, y3);
+    }
+    fctx.lineJoin = "round"; fctx.lineWidth = 1;
+    for (let k = 0; k < 256; k++) {
+      const q = buckets[k]; if (!q) continue;
+      fctx.beginPath();
+      for (let n = 0; n < q.length; n += 8) { fctx.moveTo(q[n], q[n + 1]); fctx.lineTo(q[n + 2], q[n + 3]); fctx.lineTo(q[n + 4], q[n + 5]); fctx.lineTo(q[n + 6], q[n + 7]); fctx.closePath(); }
+      fctx.fillStyle = lut[k]; fctx.strokeStyle = lut[k]; fctx.fill(); fctx.stroke();
+    }
+  }
+  if (field.mesh || !fields) {
+    fctx.strokeStyle = !fields ? css("--line") : field.key === "none" ? css("--muted") : "rgba(20,28,36,0.35)"; fctx.lineWidth = 1;
+    fctx.beginPath();
+    for (let j = 0; j < NJ; j++) { for (let i = 0; i <= NI; i++) { const n = j * NI + (i % NI); i ? fctx.lineTo(sx(X[n]), sy(Y[n])) : fctx.moveTo(sx(X[n]), sy(Y[n])); } }
+    for (let i = 0; i < NI; i++) { for (let j = 0; j < NJ; j++) { const n = j * NI + i; j ? fctx.lineTo(sx(X[n]), sy(Y[n])) : fctx.moveTo(sx(X[n]), sy(Y[n])); } }
+    fctx.stroke();
+  }
+  if (fields && fields.mach && field.sonic) drawSonicLine(sx, sy);
+  if (field.stream && fields && fields.u) drawStreamlines(sx, sy);
+  if (field.vec && fields && fields.u) drawVectors(sx, sy);
+  fctx.beginPath();
+  for (let i = 0; i < NI; i++) i ? fctx.lineTo(sx(X[i]), sy(Y[i])) : fctx.moveTo(sx(X[i]), sy(Y[i]));
+  fctx.closePath(); fctx.fillStyle = "#3a4654"; fctx.fill();
+  fctx.strokeStyle = "#f2f5f8"; fctx.lineWidth = 1.5 * dpr(); fctx.lineJoin = "round"; fctx.stroke();
+  // intermittency view: the laminar layer is far too thin to see, so the surface itself is banded
+  // laminar (blue) / turbulent (orange) by whether the boundary layer carries eddy viscosity
+  if (field.key === "gamma" && fields && fields.wall && fields.wall.gw) {
+    const gw = fields.wall.gw, lam = new Path2D(), tur = new Path2D();
+    for (let i = 0; i < NI; i++) { const ip = (i + 1) % NI, P2 = gw[i] > 5 ? tur : lam; P2.moveTo(sx(X[i]), sy(Y[i])); P2.lineTo(sx(X[ip]), sy(Y[ip])); }
+    fctx.save(); fctx.lineCap = "butt"; fctx.lineWidth = 5 * dpr();
+    fctx.strokeStyle = "rgb(60,130,220)"; fctx.stroke(lam); fctx.strokeStyle = "rgb(235,110,40)"; fctx.stroke(tur);
+    fctx.restore();
+  }
+  // chord scale bar
+  const unit = niceLen(120 / view.s), px = unit * view.s, pad = 12 * dpr();
+  fctx.strokeStyle = css("--fg"); fctx.fillStyle = css("--fg"); fctx.lineWidth = dpr();
+  const yb = H - pad - 20 * dpr(), xb = W - pad - px;
+  fctx.beginPath(); fctx.moveTo(xb, yb); fctx.lineTo(xb + px, yb); fctx.moveTo(xb, yb - 4 * dpr()); fctx.lineTo(xb, yb + 4 * dpr()); fctx.moveTo(xb + px, yb - 4 * dpr()); fctx.lineTo(xb + px, yb + 4 * dpr()); fctx.stroke();
+  fctx.font = `${11 * dpr()}px "IBM Plex Mono", monospace`; fctx.textAlign = "center"; fctx.textBaseline = "bottom";
+  fctx.fillText(`${fmtLen(unit)} c · ${fmtM(unit * solvedFor.chord)}`, xb + px / 2, yb - 6 * dpr());
+}
+/* Mach and schlieren views exist only for compressible solutions; fall back to speed otherwise */
+function syncCompButtons() {
+  const on = compFields(), gOn = !!(fields && fields.gamma);
+  document.querySelectorAll("#fieldSeg .compOnly").forEach(b => { b.hidden = !on; });
+  document.querySelectorAll("#fieldSeg .gOnly").forEach(b => { b.hidden = !gOn; });
+  if (!gOn && field.key === "gamma") {
+    field.key = "nut";
+    $("fieldSeg").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.field === "nut")));
+  }
+  $("lblSonic").hidden = !on;
+  if (!on && (field.key === "mach" || field.key === "schl")) {
+    field.key = "speed";
+    $("fieldSeg").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.field === "speed")));
+  }
+}
+/* Sonic line (M = 1): marching squares on node values (cell averages) of the curvilinear mesh */
+function drawSonicLine(sx, sy) {
+  const { NI, NJ } = grid, NC = NJ - 1, X = RX, Y = RY, M = fields.mach;
+  let any = false; for (const v of M) if (v > 1) { any = true; break; }
+  if (!any) return;
+  const nm = new Float32Array(NI * NJ);
+  for (let j = 0; j < NJ; j++) for (let i = 0; i < NI; i++) {
+    let s = 0, k = 0;
+    for (const jj of [j - 1, j]) { if (jj < 0 || jj >= NC) continue; for (const ii of [(i - 1 + NI) % NI, i]) { s += M[jj * NI + ii]; k++; } }
+    nm[j * NI + i] = s / k;
+  }
+  const W = fcv.width, H = fcv.height;
+  fctx.beginPath();
+  for (let j = 0; j < NC; j++) for (let i = 0; i < NI; i++) {
+    const ip = (i + 1) % NI, q = [j * NI + i, j * NI + ip, (j + 1) * NI + ip, (j + 1) * NI + i];
+    const v = q.map(n => nm[n] - 1);
+    if ((v[0] > 0) === (v[1] > 0) && (v[1] > 0) === (v[2] > 0) && (v[2] > 0) === (v[3] > 0)) continue;
+    const xs = q.map(n => sx(X[n])), ys = q.map(n => sy(Y[n]));
+    if (Math.max(...xs) < 0 || Math.min(...xs) > W || Math.max(...ys) < 0 || Math.min(...ys) > H) continue;
+    const pts = [];
+    for (let e = 0; e < 4; e++) {
+      const a = v[e], b = v[(e + 1) % 4];
+      if ((a > 0) !== (b > 0)) { const t = a / (a - b); pts.push(xs[e] + t * (xs[(e + 1) % 4] - xs[e]), ys[e] + t * (ys[(e + 1) % 4] - ys[e])); }
+    }
+    for (let k = 0; k + 3 < pts.length; k += 4) { fctx.moveTo(pts[k], pts[k + 1]); fctx.lineTo(pts[k + 2], pts[k + 3]); }
+  }
+  fctx.strokeStyle = field.key === "schl" ? "rgba(200,40,30,0.9)" : field.key === "none" ? css("--fg") : "rgba(10,12,16,0.9)"; fctx.lineWidth = 1.6 * dpr(); fctx.stroke();
+}
+/* ---------- streamlines ----------
+   Traced in the solver's chord-aligned frame on the curvilinear grid: locate the
+   quad by walking cell to cell, invert the bilinear map, interpolate node velocities
+   (cell averages, zero at the wall), and integrate with midpoint (RK2) steps. */
+let nodeVel = null, nodeVelFor = null, quadSign = 1;
+function buildNodeVel() {
+  const { NI, NJ, X, Y } = grid, NC = NJ - 1, n = NI * NJ;
+  const nu = new Float32Array(n), nv = new Float32Array(n);
+  for (let j = 1; j < NJ; j++) for (let i = 0; i < NI; i++) {
+    let su = 0, sv = 0, k = 0;
+    for (let jj = j - 1; jj <= j; jj++) {
+      if (jj > NC - 1) continue;
+      for (const ii of [(i - 1 + NI) % NI, i]) { const c = jj * NI + ii; su += fields.u[c]; sv += fields.v[c]; k++; }
+    }
+    nu[j * NI + i] = su / k; nv[j * NI + i] = sv / k;
+  }
+  nodeVel = { u: nu, v: nv }; nodeVelFor = fields;
+  const a = NI, b = NI + 1, c = 2 * NI + 1, d = 2 * NI;   // cell (0, 1)
+  quadSign = ((X[c] - X[a]) * (Y[d] - Y[b]) - (Y[c] - Y[a]) * (X[d] - X[b])) > 0 ? 1 : -1;
+}
+function locate(px, py, g) {
+  const { NI, NJ, X, Y } = grid, NC = NJ - 1, q = quadSign;
+  let i = g.i, j = g.j;
+  for (let it = 0; it < 800; it++) {
+    const ip = (i + 1) % NI, a = j * NI + i, b = j * NI + ip, c = (j + 1) * NI + ip, d = (j + 1) * NI + i;
+    const e0 = q * ((X[b] - X[a]) * (py - Y[a]) - (Y[b] - Y[a]) * (px - X[a]));
+    const e1 = q * ((X[c] - X[b]) * (py - Y[b]) - (Y[c] - Y[b]) * (px - X[b]));
+    const e2 = q * ((X[d] - X[c]) * (py - Y[c]) - (Y[d] - Y[c]) * (px - X[c]));
+    const e3 = q * ((X[a] - X[d]) * (py - Y[d]) - (Y[a] - Y[d]) * (px - X[d]));
+    const m = Math.min(e0, e1, e2, e3);
+    if (m >= 0) { g.i = i; g.j = j; g.a = a; g.b = b; g.c = c; g.d = d; return true; }
+    if (m === e0) { if (j === 0) return false; j--; }
+    else if (m === e2) { if (j === NC - 1) return false; j++; }
+    else if (m === e1) i = ip; else i = (i - 1 + NI) % NI;
+  }
+  return false;
+}
+// start a search from the outer boundary at the point's angle: that walk never has to cross the body
+function seedLocate(px, py, g) {
+  if (locate(px, py, g)) return true;
+  const { NI, NJ } = grid, th = Math.atan2(py, px - 0.5);
+  g.i = ((Math.round(th / (2 * Math.PI) * NI) % NI) + NI) % NI; g.j = NJ - 2;
+  return locate(px, py, g);
+}
+const velOut = [0, 0];
+function velAt(px, py, g) {
+  if (!locate(px, py, g)) return null;
+  const { X, Y } = grid, { a, b, c, d } = g;
+  let s = 0.5, t = 0.5;
+  for (let k = 0; k < 6; k++) {
+    const x = (1 - s) * (1 - t) * X[a] + s * (1 - t) * X[b] + s * t * X[c] + (1 - s) * t * X[d];
+    const y = (1 - s) * (1 - t) * Y[a] + s * (1 - t) * Y[b] + s * t * Y[c] + (1 - s) * t * Y[d];
+    const xs = (1 - t) * (X[b] - X[a]) + t * (X[c] - X[d]), ys = (1 - t) * (Y[b] - Y[a]) + t * (Y[c] - Y[d]);
+    const xt = (1 - s) * (X[d] - X[a]) + s * (X[c] - X[b]), yt = (1 - s) * (Y[d] - Y[a]) + s * (Y[c] - Y[b]);
+    const det = xs * yt - xt * ys; if (!det) break;
+    const rx = px - x, ry = py - y;
+    s += (rx * yt - ry * xt) / det; t += (xs * ry - ys * rx) / det;
+  }
+  s = s < 0 ? 0 : s > 1 ? 1 : s; t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const U = nodeVel.u, V = nodeVel.v, w0 = (1 - s) * (1 - t), w1 = s * (1 - t), w2 = s * t, w3 = (1 - s) * t;
+  velOut[0] = w0 * U[a] + w1 * U[b] + w2 * U[c] + w3 * U[d];
+  velOut[1] = w0 * V[a] + w1 * V[b] + w2 * V[c] + w3 * V[d];
+  return velOut;
+}
+function trace(x, y, dir, ds, keep, maxSteps, g, closeLoops) {
+  const pts = [x, y], x0 = x, y0 = y;
+  for (let n = 0; n < maxSteps; n++) {
+    let v = velAt(x, y, g); if (!v) break;
+    let m = Math.hypot(v[0], v[1]); if (m < 1e-5) break;
+    const xm = x + 0.5 * ds * dir * v[0] / m, ym = y + 0.5 * ds * dir * v[1] / m;
+    v = velAt(xm, ym, g); if (!v) break;
+    m = Math.hypot(v[0], v[1]); if (m < 1e-5) break;
+    x += ds * dir * v[0] / m; y += ds * dir * v[1] / m;
+    pts.push(x, y);
+    if (!keep(x, y)) break;
+    if (closeLoops && n > 40 && Math.hypot(x - x0, y - y0) < 2 * ds) break;
+  }
+  return pts;
+}
+function drawStreamlines(sx, sy) {
+  if (nodeVelFor !== fields) buildNodeVel();
+  const { NI, NJ, X, Y } = grid, W = fcv.width, H = fcv.height, s = view.s, d = dpr();
+  const hw = W / 2 / s, hh = H / 2 / s, mx = 0.08 * hw, my = 0.08 * hh;
+  const keep = (x, y) => { const [vx, vy] = rotPt(x, y); return Math.abs(vx - view.cx) < hw + mx && Math.abs(vy - view.cy) < hh + my; };
+  const ds = 2 * d / s, maxSteps = Math.ceil(6 * (W + H) / (2 * d));
+  const lines = [], g = { i: NI >> 1, j: (NJ - 1) >> 1 };
+  const nRake = Math.max(12, Math.round(H / d / 16));
+  for (let k = 0; k < nRake; k++) {
+    const [x, y] = unrotPt(view.cx - hw * 0.995, view.cy - hh + (k + 0.5) / nRake * 2 * hh);
+    if (seedLocate(x, y, g)) lines.push(trace(x, y, 1, ds, keep, maxSteps, g, false));
+  }
+  // extra seeds inside reversed-flow regions, traced both ways, so recirculation shows up
+  const seeds = [], minGap = 36 * d;
+  for (let j = 0; j < NJ - 1 && seeds.length < 10; j++) for (let i = 0; i < NI && seeds.length < 10; i++) {
+    const c = j * NI + i; if (fields.ux[c] > -0.02) continue;
+    const ip = (i + 1) % NI, n = [j * NI + i, j * NI + ip, (j + 1) * NI + ip, (j + 1) * NI + i];
+    const cx = (X[n[0]] + X[n[1]] + X[n[2]] + X[n[3]]) / 4, cy = (Y[n[0]] + Y[n[1]] + Y[n[2]] + Y[n[3]]) / 4;
+    if (!keep(cx, cy)) continue;
+    const [rx, ry] = rotPt(cx, cy), px = sx(rx), py = sy(ry);
+    if (px < 0 || px > W || py < 0 || py > H) continue;
+    if (seeds.some(q => Math.hypot(q[2] - px, q[3] - py) < minGap)) continue;
+    seeds.push([cx, cy, px, py, i, j]);
+  }
+  for (const [cx, cy, , , i, j] of seeds) {
+    const gs = { i, j };
+    lines.push(trace(cx, cy, 1, ds, keep, maxSteps, gs, true));
+    const back = trace(cx, cy, -1, ds, keep, maxSteps, { i, j }, true), rev = [];
+    for (let k = back.length - 2; k >= 0; k -= 2) rev.push(back[k], back[k + 1]);   // so arrows point downstream
+    lines.push(rev);
+  }
+  // draw: dark halo, light core, arrowheads along the line
+  const scr = lines.map(p => { const o = new Float32Array(p.length); for (let k = 0; k < p.length; k += 2) { const [rx, ry] = rotPt(p[k], p[k + 1]); o[k] = sx(rx); o[k + 1] = sy(ry); } return o; });
+  const path = () => { fctx.beginPath(); for (const o of scr) { if (o.length < 4) continue; fctx.moveTo(o[0], o[1]); for (let k = 2; k < o.length; k += 2) fctx.lineTo(o[k], o[k + 1]); } };
+  fctx.lineJoin = "round"; fctx.lineCap = "round";
+  path(); fctx.strokeStyle = "rgba(8,12,18,0.45)"; fctx.lineWidth = 2.6 * d; fctx.stroke();
+  path(); fctx.strokeStyle = "rgba(250,252,255,0.92)"; fctx.lineWidth = 1.1 * d; fctx.stroke();
+  fctx.fillStyle = "rgba(250,252,255,0.95)"; fctx.strokeStyle = "rgba(8,12,18,0.5)"; fctx.lineWidth = 1 * d;
+  const gap = 150 * d, al = 6 * d;
+  for (const o of scr) {
+    let run = gap * 0.5;
+    for (let k = 2; k < o.length; k += 2) {
+      const dx = o[k] - o[k - 2], dy = o[k + 1] - o[k - 1], L = Math.hypot(dx, dy);
+      run += L; if (run < gap || L === 0) continue; run = 0;
+      if (o[k] < 0 || o[k] > W || o[k + 1] < 0 || o[k + 1] > H) continue;
+      const ux = dx / L, uy = dy / L, x = o[k], y = o[k + 1];
+      fctx.beginPath(); fctx.moveTo(x + ux * al, y + uy * al);
+      fctx.lineTo(x - ux * al - uy * al * 0.6, y - uy * al + ux * al * 0.6);
+      fctx.lineTo(x - ux * al + uy * al * 0.6, y - uy * al - ux * al * 0.6);
+      fctx.closePath(); fctx.fill(); fctx.stroke();
+    }
+  }
+}
+
+/* ---------- velocity vectors ----------
+   Arrows on a regular screen grid, so slow regions such as vortex cores and the recirculation
+   bubble, which streamlines from the inflow rake never enter, still show their direction.
+   Length grows with the square root of the speed (free stream = 0.8 of the spacing), so slow
+   flow stays visible without fast flow overlapping its neighbours. */
+function drawVectors(sx, sy) {
+  if (nodeVelFor !== fields) buildNodeVel();
+  const { NI, NJ } = grid, W = fcv.width, H = fcv.height, s = view.s, d = dpr();
+  const sp = 14 * d, g ={ i: NI >> 1, j: (NJ - 1) >> 1 }, arr = [];
+  // Arrows on a perfectly regular grid line up into rows that the eye reads as horizontal dashes,
+  // even where the arrows are tilted. A fixed pseudo-random offset per grid point breaks that up.
+  const jit = (a, b) => { const h = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return h - Math.floor(h) - 0.5; };
+  const kx0 = Math.floor((view.cx * s - W / 2) / sp), ky0 = Math.floor((-view.cy * s - H / 2) / sp);
+  for (let ky = ky0; ky * sp < -view.cy * s + H / 2 + sp; ky++) for (let kx = kx0; kx * sp < view.cx * s + W / 2 + sp; kx++) {
+    // grid fixed to the flow (moves with panning), jittered by up to 0.35 of the spacing
+    const px = kx * sp - view.cx * s + W / 2 + (0.5 + 0.7 * jit(kx, ky)) * sp, py = ky * sp + view.cy * s + H / 2 + (0.5 + 0.7 * jit(ky + 17, kx)) * sp;
+    if (px < 0 || px > W || py < 0 || py > H) continue;
+    const [x, y] = unrotPt(view.cx + (px - W / 2) / s, view.cy - (py - H / 2) / s);
+    let v = velAt(x, y, g);
+    if (!v && seedLocate(x, y, g)) v = velAt(x, y, g);
+    if (!v) continue;
+    const m = Math.hypot(v[0], v[1]); if (m < 1e-6) continue;
+    const L = 0.8 * sp * Math.min(1.35, Math.sqrt(m)), e = 1e-3;
+    const [ax, ay] = rotPt(x, y), [bx, by] = rotPt(x + e * v[0] / m, y + e * v[1] / m);   // direction in the view
+    let ux = sx(bx) - sx(ax), uy = sy(by) - sy(ay); const n = Math.hypot(ux, uy); ux /= n; uy /= n;
+    arr.push(px - ux * L / 2, py - uy * L / 2, ux, uy, L);
+  }
+  const shape = () => {
+    fctx.beginPath();
+    for (let k = 0; k < arr.length; k += 5) {
+      const x0 = arr[k], y0 = arr[k + 1], ux = arr[k + 2], uy = arr[k + 3], L = arr[k + 4], h = Math.min(3.2 * d, 0.4 * L);
+      const x1 = x0 + ux * L, y1 = y0 + uy * L;
+      fctx.moveTo(x0, y0); fctx.lineTo(x1, y1);
+      fctx.moveTo(x1 - ux * h - uy * h * 0.55, y1 - uy * h + ux * h * 0.55); fctx.lineTo(x1, y1);
+      fctx.lineTo(x1 - ux * h + uy * h * 0.55, y1 - uy * h - ux * h * 0.55);
+    }
+  };
+  fctx.lineCap = "round"; fctx.lineJoin = "round";
+  shape(); fctx.strokeStyle = "rgba(8,12,18,0.45)"; fctx.lineWidth = 2.2 * d; fctx.stroke();
+  shape(); fctx.strokeStyle = "rgba(250,252,255,0.95)"; fctx.lineWidth = 0.9 * d; fctx.stroke();
+}
+
+function niceLen(x) { const e = 10 ** Math.floor(Math.log10(x)), m = x / e; return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * e; }
+function fmtLen(x) { return x >= 1 ? x.toFixed(0) : x.toPrecision(1); }
+function fmtM(m) { return m >= 1 ? `${m.toFixed(m >= 10 ? 0 : 1)} m` : m >= 0.01 ? `${(m * 100).toPrecision(2)} cm` : `${(m * 1000).toPrecision(2)} mm`; }
+function drawWaiting() {
+  fctx.fillStyle = css("--muted"); fctx.font = `${13 * dpr()}px "Archivo", sans-serif`; fctx.textAlign = "center";
+  fctx.fillText("Building mesh…", fcv.width / 2, fcv.height / 2);
+}
+function dpr() { return Math.min(window.devicePixelRatio || 1, 2); }
+
+/* ---------- smoke probe ----------
+   Hold the mouse in the flow to release smoke at the pointer. Time runs at the physical
+   rate of the solved case (U/c), optionally in slow motion. Particles are released
+   continuously, carried with the computed velocity (same interpolation as the streamlines,
+   RK2 steps), and joined in release order: the smoke filament, a streakline. When the air
+   crosses the view within a few frames (real time at road speed), a particle animation is
+   meaningless and the eye sees what a real smoke wand shows: the filament along the
+   streamline through the probe, which is then drawn directly. Particles live in the
+   solver's chord-aligned frame. */
+const smoke = { on: false, held: false, x: 0, y: 0, streak: 0, seq: 0, parts: [], raf: 0, last: 0, base: document.createElement("canvas"), maxAge: 9, slow: 1, line: null, fade: 0, instant: false };
+function idleTag() { return smoke.on ? "Hold the mouse button to release smoke · shift-drag to pan · scroll to zoom" : "Hover to probe · scroll to zoom · drag to pan"; }
+function smokeMove(e) {
+  const r = fcv.getBoundingClientRect(), d = dpr();
+  const vx = view.cx + ((e.clientX - r.left) * d - fcv.width / 2) / view.s;
+  const vy = view.cy - ((e.clientY - r.top) * d - fcv.height / 2) / view.s;
+  [smoke.x, smoke.y] = unrotPt(vx, vy); smoke.placed = true;
+}
+function smokeBase() {
+  const b = smoke.base;
+  if (b.width !== fcv.width || b.height !== fcv.height) { b.width = fcv.width; b.height = fcv.height; }
+  b.getContext("2d").drawImage(fcv, 0, 0);
+}
+function kickSmoke() { if (!smoke.raf) { smoke.last = 0; smoke.raf = requestAnimationFrame(smokeFrame); } }
+function smokeFrame(t) {
+  smoke.raf = 0;
+  if (!(smoke.on || pulse.on) || !grid || !fields) return;
+  if (player.recording && player.recording.frames) return;   // the video export steps the smoke itself
+  const dt = smoke.last ? Math.min(0.05, (t - smoke.last) / 1000) : 1 / 60;
+  smoke.last = t;
+  if (smoke.on) stepSmoke(dt);
+  if (pulse.on) stepPulses(dt);
+  fctx.drawImage(smoke.base, 0, 0);
+  drawOverlays();
+  if ((smoke.on && (smoke.held || smoke.parts.length || smoke.fade > 0)) || (pulse.on && pulseRate() > 0)) smoke.raf = requestAnimationFrame(smokeFrame);
+}
+const smokeKeep = () => {
+  const hw = 0.6 * fcv.width / view.s, hh = 0.6 * fcv.height / view.s;
+  return (x, y) => { const [rx, ry] = rotPt(x, y); return Math.abs(rx - view.cx) < hw && Math.abs(ry - view.cy) < hh; };
+};
+// advance one particle by time h (chord / U units) in RK2 steps of at most hs
+function advect(p, h, hs) {
+  const n = Math.max(1, Math.ceil(h / hs)), k = h / n;
+  for (let s = 0; s < n; s++) {
+    let v = velAt(p.x, p.y, p.g); if (!v) return false;
+    const xm = p.x + 0.5 * k * v[0], ym = p.y + 0.5 * k * v[1];
+    v = velAt(xm, ym, p.g); if (!v) return false;
+    p.x += k * v[0]; p.y += k * v[1];
+  }
+  return true;
+}
+function stepSmoke(dt) {
+  if (nodeVelFor !== fields) buildNodeVel();
+  const d = dpr(), W = fcv.width;
+  // while the movie plays, the smoke runs on movie time through the changing field
+  const rate = player.active && player.playing ? playRate() : (solvedFor.kmh / 3.6) / solvedFor.chord / smoke.slow;   // convective time units per second
+  const h = rate * dt;                                                  // this frame, in chord / U
+  // instant mode when the free stream would cross more than ~40% of the view per frame
+  smoke.instant = h * view.s > 0.4 * W;
+  if (smoke.instant) {
+    smoke.parts = [];
+    if (smoke.held) {
+      const g = { i: grid.NI >> 1, j: (grid.NJ - 1) >> 1 };
+      smoke.line = seedLocate(smoke.x, smoke.y, g) ? trace(smoke.x, smoke.y, 1, 2 * d / view.s, smokeKeep(), Math.ceil(8 * (W + fcv.height) / (2 * d)), g, true) : null;
+      smoke.fade = 1;
+    } else smoke.fade = Math.max(0, smoke.fade - dt / 0.35);   // a released wand's smoke clears quickly
+    return;
+  }
+  smoke.line = null; smoke.fade = 0;
+  const hs = 5 * d / view.s, keep = smokeKeep();
+  const out = [];
+  for (const p of smoke.parts) {
+    p.age += dt;
+    if (p.age < smoke.maxAge && advect(p, h, hs) && keep(p.x, p.y)) out.push(p);
+  }
+  if (smoke.held) {
+    // release a particle about every 4 px of free-stream travel, spread over the frame
+    const tau = 4 * d / view.s, nEmit = Math.max(1, Math.min(200, Math.round(h / tau)));
+    const g0 = { i: grid.NI >> 1, j: (grid.NJ - 1) >> 1 };
+    if (seedLocate(smoke.x, smoke.y, g0)) {
+      for (let m = 0; m < nEmit; m++) {
+        const p = { x: smoke.x, y: smoke.y, age: 0, streak: smoke.streak, seq: smoke.seq++, g: { i: g0.i, j: g0.j } };
+        const tm = (nEmit - m - 0.5) / nEmit * h;   // earlier releases have travelled further
+        if (advect(p, tm, hs)) out.push(p);
+      }
+    }
+  }
+  smoke.parts = out.length > 6000 ? out.slice(out.length - 6000) : out;
+}
+function drawSmoke() {
+  const W = fcv.width, H = fcv.height, d = dpr();
+  const sx = x => (x - view.cx) * view.s + W / 2, sy = y => (view.cy - y) * view.s + H / 2;
+  const NB = 8, halo = [], core = [];
+  for (let b = 0; b < NB; b++) { halo.push(new Path2D()); core.push(new Path2D()); }
+  const maxGap = 60 * d;
+  if (smoke.instant) {
+    const L = smoke.line;
+    if (L && L.length >= 4 && smoke.fade > 0) {
+      const n = L.length / 2;
+      let px = 0, py = 0;
+      for (let k = 0; k < n; k++) {
+        const [rx, ry] = rotPt(L[2 * k], L[2 * k + 1]), x = sx(rx), y = sy(ry);
+        if (k) { const b = Math.min(NB - 1, Math.floor(k / n * NB)); halo[b].moveTo(px, py); halo[b].lineTo(x, y); core[b].moveTo(px, py); core[b].lineTo(x, y); }
+        px = x; py = y;
+      }
+    }
+  } else {
+    let prev = null, px = 0, py = 0;
+    for (const p of smoke.parts) {
+      const [rx, ry] = rotPt(p.x, p.y), x = sx(rx), y = sy(ry);
+      if (prev && prev.streak === p.streak && p.seq === prev.seq + 1 && Math.hypot(x - px, y - py) < maxGap) {
+        const b = Math.min(NB - 1, Math.floor(p.age / smoke.maxAge * NB));
+        halo[b].moveTo(px, py); halo[b].lineTo(x, y);
+        core[b].moveTo(px, py); core[b].lineTo(x, y);
+      }
+      prev = p; px = x; py = y;
+    }
+  }
+  const fade = smoke.instant ? smoke.fade : 1;
+  fctx.save();
+  fctx.lineCap = "round"; fctx.lineJoin = "round";
+  for (let b = 0; b < NB; b++) {
+    // fades and spreads with age (particles) or with distance downstream (instant filament)
+    const f = 1 - (b + 0.5) / NB, a = (smoke.instant ? 0.35 + 0.65 * f : f * f) * fade, w = (1.6 + 3.2 * (1 - f)) * d;
+    fctx.strokeStyle = `rgba(8,12,18,${(0.3 * a).toFixed(3)})`; fctx.lineWidth = w + 2.4 * d; fctx.stroke(halo[b]);
+    fctx.strokeStyle = `rgba(246,248,252,${(0.9 * a).toFixed(3)})`; fctx.lineWidth = w; fctx.stroke(core[b]);
+  }
+  if (smoke.held) {   // the probe tip
+    const [rx, ry] = rotPt(smoke.x, smoke.y), x = sx(rx), y = sy(ry);
+    fctx.beginPath(); fctx.arc(x, y, 4.5 * d, 0, 2 * Math.PI);
+    fctx.fillStyle = "rgba(246,248,252,0.95)"; fctx.strokeStyle = "rgba(8,12,18,0.7)"; fctx.lineWidth = 1.5 * d; fctx.fill(); fctx.stroke();
+  }
+  fctx.restore();
+}
+
+/* ---------- flow pulses ----------
+   Every few tenths of a view width of free-stream travel, a rake at the left edge of the view
+   releases a row of tracer particles. Each is carried with the velocity at its position
+   (RK2 steps of a few pixels) and drawn as its own recent path, a short streak whose length
+   shows the local speed. In a URANS movie the particles run on movie time through the blended
+   field, so they bunch up in the shear layers and get caught and carried by the shed vortices.
+   In a steady solution they run at a fixed visual rate (the free stream crosses the view in
+   about 4 s). Particles live in the solver's chord-aligned frame, like the smoke. */
+const pulse = { on: false, parts: [], clock: 0, next: 0, lastT: null, grid: null };
+function resetPulses() { pulse.parts = []; pulse.clock = 0; pulse.next = 0; pulse.lastT = null; }
+function viewSpan() { return fcv.width / view.s; }   // view width in chords
+function pulseRate() {   // convective time units (c/U) per second of animation
+  if (player.active) return player.playing ? playRate() : 0;
+  return viewSpan() / 4;
+}
+function stepPulses(dt) {
+  if (!grid || !fields || !fields.u) return;
+  if (nodeVelFor !== fields) buildNodeVel();
+  if (pulse.grid !== grid) { resetPulses(); pulse.grid = grid; pulse.rOut = 0; }
+  if (player.active) {   // a jump back in movie time (loop, scrubbing) restarts the pulses
+    if (pulse.lastT !== null && player.time < pulse.lastT - 1e-9) resetPulses();
+    pulse.lastT = player.time;
+  }
+  const h = pulseRate() * dt; if (!(h > 0)) return;
+  const d = dpr(), span = viewSpan(), hs = 4 * d / view.s, tail = 0.07 * span, maxAge = 3 * span;
+  const W = fcv.width, H = fcv.height, hw = 0.55 * W / view.s, hh = 0.55 * H / view.s;
+  const inView = (x, y) => { const [rx, ry] = rotPt(x, y); return Math.abs(rx - view.cx) < hw && Math.abs(ry - view.cy) < hh; };
+  const out = [], n = Math.max(1, Math.min(60, Math.ceil(h / hs))), k = h / n;
+  for (const p of pulse.parts) {
+    let ok = true;
+    for (let s = 0; s < n && ok; s++) {
+      let v = velAt(p.x, p.y, p.g); if (!v) { ok = false; break; }
+      const xm = p.x + 0.5 * k * v[0], ym = p.y + 0.5 * k * v[1];
+      v = velAt(xm, ym, p.g); if (!v) { ok = false; break; }
+      p.x += k * v[0]; p.y += k * v[1]; p.age += k;
+      p.h.push(p.x, p.y, pulse.clock + (s + 1) * k);
+    }
+    // keep the path over the last `tail` of time (plus one older point, so the streak does not shrink)
+    let cut = 0; const t0 = pulse.clock + h - tail;
+    while (cut + 5 < p.h.length && p.h[cut + 5] < t0) cut += 3;
+    if (cut) p.h.splice(0, cut);
+    if (ok && p.age < maxAge && inView(p.x, p.y)) out.push(p);
+  }
+  pulse.clock += h;
+  // release a new row whenever the free stream has travelled 0.2 view widths
+  if (pulse.clock >= pulse.next) {
+    pulse.next = pulse.clock + 0.2 * span;
+    const ny = Math.max(16, Math.round(H / (11 * d))), g = { i: grid.NI >> 1, j: (grid.NJ - 1) >> 1 };
+    // zoomed far out, the left edge of the view lies outside the mesh: start the rake on the outer boundary
+    if (!pulse.rOut) { const { NI, NJ, X, Y } = grid; let r = Infinity; for (let i = 0; i < NI; i++) { const n = (NJ - 1) * NI + i; r = Math.min(r, Math.hypot(X[n] - 0.5, Y[n])); } pulse.rOut = 0.97 * r; }
+    const [ex0, ey0] = unrotPt(0, 0), [ex1, ey1] = unrotPt(1, 0), ex = ex1 - ex0, ey = ey1 - ey0;   // the view's x direction
+    for (let m = 0; m < ny; m++) {
+      let [x, y] = unrotPt(view.cx - 0.49 * W / view.s, view.cy - 0.5 * H / view.s + (m + 0.5) / ny * H / view.s);
+      const qx = x - 0.5, R = pulse.rOut;
+      if (Math.hypot(qx, y) > R) {   // move right onto the circle, if the row crosses it at all
+        const b2 = qx * ex + y * ey, c2 = qx * qx + y * y - R * R, disc = b2 * b2 - c2;
+        if (disc <= 0) continue;
+        const sR = -b2 - Math.sqrt(disc); if (sR < 0) continue;
+        x += sR * ex; y += sR * ey;
+      }
+      if (!seedLocate(x, y, g)) continue;
+      out.push({ x, y, age: 0, g: { i: g.i, j: g.j }, h: [x, y, pulse.clock] });
+    }
+  }
+  pulse.parts = out.length > 8000 ? out.slice(out.length - 8000) : out;
+}
+function drawPulses() {
+  if (!pulse.parts.length) return;
+  const W = fcv.width, H = fcv.height, d = dpr();
+  const sx = x => (x - view.cx) * view.s + W / 2, sy = y => (view.cy - y) * view.s + H / 2;
+  // three brightness bands along each streak, oldest part faintest
+  const NB = 3, paths = []; for (let b = 0; b < NB; b++) paths.push(new Path2D());
+  const heads = new Path2D(), r = 1.3 * d;
+  for (const p of pulse.parts) {
+    const q = p.h, m = q.length / 3; if (m < 1) continue;
+    let px = 0, py = 0;
+    for (let k = 0; k < m; k++) {
+      const [rx, ry] = rotPt(q[3 * k], q[3 * k + 1]), x = sx(rx), y = sy(ry);
+      if (k) { const b = Math.min(NB - 1, Math.floor(k / m * NB)); paths[b].moveTo(px, py); paths[b].lineTo(x, y); }
+      px = x; py = y;
+    }
+    heads.moveTo(px + r, py); heads.arc(px, py, r, 0, 2 * Math.PI);
+  }
+  fctx.save();
+  fctx.lineCap = "round"; fctx.lineJoin = "round";
+  for (let b = 0; b < NB; b++) { fctx.strokeStyle = "rgba(8,12,18,0.4)"; fctx.lineWidth = 3 * d; fctx.stroke(paths[b]); }
+  for (let b = 0; b < NB; b++) { fctx.strokeStyle = `rgba(250,252,255,${(0.35 + 0.6 * (b + 1) / NB).toFixed(2)})`; fctx.lineWidth = 1.3 * d; fctx.stroke(paths[b]); }
+  fctx.fillStyle = "rgba(255,255,255,0.95)"; fctx.fill(heads);
+  fctx.restore();
+}
+
+/* ---------- URANS movie ----------
+   The worker sends a compact frame (u, v, Cp, eddy viscosity, wall Cp and Cf) every few time
+   steps inside the recording window. The player blends linearly between neighbouring frames,
+   so playback is smooth at any speed, and feeds the blended field to the normal field view,
+   the Cp and Cf plots and the smoke probe. Colour ranges are frozen while the player is open.
+   Saving records the field canvas (with a time and force overlay) as a video. */
+// movie frame spacing is set in time (rec.every x 0.02 c/U), so smaller time steps do not multiply the frames
+function recSteps() { return Math.max(1, Math.round(rec.every * 0.02 / urans.dt)); }
+function movieNote(steps) {
+  const nF = Math.floor((rec.win === "half" ? steps / 2 : steps) / recSteps()), N = P.mesh * (P.mesh / 2 - 1) * (P.adapt ? 1.25 : 1);
+  return ` Movie: about ${nF} frames, ${(nF * N * 16 / 1048576).toFixed(0)} MB of memory.`;
+}
+function playRate() { return (solvedFor.kmh / 3.6) / solvedFor.chord / player.slow; }   // c/U per second of playback
+function openPlayer() {
+  const fr = player.frames, n = fr[0].u.length, a = (solvedFor.invert ? -solvedFor.alpha : solvedFor.alpha) * Math.PI / 180;
+  player.ca = Math.cos(a); player.sa = Math.sin(a);
+  player.wall = fields ? fields.wall : null;
+  player.pf = { u: new Float32Array(n), v: new Float32Array(n), cp: new Float32Array(n), nut: new Float32Array(n), speed: new Float32Array(n), ux: new Float32Array(n),
+                wcp: new Float32Array(fr[0].wcp.length), wcf: new Float32Array(fr[0].wcf.length) };
+  if (fr[0].mach) { player.pf.mach = new Float32Array(n); player.pf.schl = new Float32Array(n); }
+  computeRanges();   // freeze the colour scale on the final field
+  player.active = true; player.playing = false; player.time = fr[0].t;
+  // label each speed with the resulting movie length
+  const span = fr[fr.length - 1].t - fr[0].t;
+  for (const o of $("selPlaySpeed").options) { const r = (solvedFor.kmh / 3.6) / solvedFor.chord / +o.value; o.textContent = `Slow motion 1:${o.value} · ${(span / r).toFixed(1)} s`; }
+  $("player").hidden = false; $("btnVideo").disabled = false;
+  renderAt(player.time);
+}
+function closePlayer() {
+  pausePlayer(); if (player.recording) stopRecording(true);
+  player.active = false; $("player").hidden = true;
+}
+function renderAt(t) {
+  const fr = player.frames, n1 = fr.length - 1;
+  t = Math.max(fr[0].t, Math.min(fr[n1].t, t)); player.time = t;
+  let lo = 0, hi = n1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (fr[mid].t <= t) lo = mid; else hi = mid; }
+  const A = fr[lo], B = fr[hi], w = B.t > A.t ? (t - A.t) / (B.t - A.t) : 0, w0 = 1 - w, pf = player.pf;
+  for (let c = 0; c < pf.u.length; c++) {
+    const u = w0 * A.u[c] + w * B.u[c], v = w0 * A.v[c] + w * B.v[c];
+    pf.u[c] = u; pf.v[c] = v; pf.cp[c] = w0 * A.cp[c] + w * B.cp[c]; pf.nut[c] = w0 * A.nut[c] + w * B.nut[c];
+    pf.speed[c] = Math.hypot(u, v); pf.ux[c] = u * player.ca + v * player.sa;
+  }
+  if (pf.mach) for (let c = 0; c < pf.u.length; c++) { pf.mach[c] = w0 * A.mach[c] + w * B.mach[c]; pf.schl[c] = w0 * A.schl[c] + w * B.schl[c]; }
+  for (let i = 0; i < pf.wcp.length; i++) { pf.wcp[i] = w0 * A.wcp[i] + w * B.wcp[i]; pf.wcf[i] = w0 * A.wcf[i] + w * B.wcf[i]; }
+  player.cl = w0 * A.cl + w * B.cl; player.cd = w0 * A.cd + w * B.cd;
+  const W = player.wall;
+  fields = { speed: pf.speed, ux: pf.ux, u: pf.u, v: pf.v, cp: pf.cp, nutRatio: pf.nut, mach: pf.mach || null, schl: pf.schl || null,
+             wall: { x: W ? W.x : new Float32Array(pf.wcp.length), upper: W ? W.upper : new Uint8Array(pf.wcp.length), yp: W ? W.yp : new Float32Array(pf.wcp.length), cp: pf.wcp, cf: pf.wcf } };
+  updateSep(); drawField(); drawCp(); drawCf(); drawConv();
+  const span = fr[n1].t - fr[0].t;
+  $("rngPlay").value = span > 0 ? Math.round((t - fr[0].t) / span * 1000) : 0;
+  const ms = t * solvedFor.chord / (solvedFor.kmh / 3.6) * 1000;
+  $("playTime").textContent = `t = ${t.toFixed(2)} c/U · ${ms.toFixed(1)} ms`;
+}
+function startPlayer() {
+  if (!player.active) return;
+  const fr = player.frames;
+  if (player.time >= fr[fr.length - 1].t - 1e-9) player.time = fr[0].t;
+  player.playing = true; player.last = 0; $("btnPlay").textContent = "Pause";
+  if (!player.raf) player.raf = requestAnimationFrame(playFrame);
+  if (smoke.on || pulse.on) kickSmoke();
+}
+function pausePlayer() {
+  player.playing = false; $("btnPlay").textContent = "Play";
+  if (player.raf) { cancelAnimationFrame(player.raf); player.raf = 0; }
+}
+function playFrame(ts) {
+  player.raf = 0;
+  if (!player.playing) return;
+  const dt = player.last ? Math.min(0.1, (ts - player.last) / 1000) : 0;
+  player.last = ts;
+  const fr = player.frames, t0 = fr[0].t, t1 = fr[fr.length - 1].t;
+  let t = player.time + dt * playRate();
+  if (t >= t1) {
+    if (player.loop && !player.recording && t1 > t0) t = t0 + (t - t1) % (t1 - t0);
+    else { t = t1; player.playing = false; $("btnPlay").textContent = "Play"; }
+  }
+  renderAt(t);
+  if (!player.playing && player.recording) stopRecording();
+  if (player.playing) player.raf = requestAnimationFrame(playFrame);
+}
+function drawMovieOverlay() {
+  const d = dpr(), W = fcv.width, H = fcv.height, sg = solvedFor.invert ? -1 : 1;
+  const ms = player.time * solvedFor.chord / (solvedFor.kmh / 3.6) * 1000;
+  const l1 = `${secName(solvedFor.code)}${solvedFor.invert ? " inverted" : ""} · α ${solvedFor.alpha.toFixed(1)}° · ${solvedFor.kmh.toFixed(0)} km/h · c ${solvedFor.chord.toFixed(2)} m · ${P.turb === "sstg" ? "SST-γ" : P.turb === "sst" ? "k-ω SST" : "SA"} URANS`;
+  const l2 = `t = ${player.time.toFixed(2)} c/U (${ms.toFixed(1)} ms) · ${solvedFor.invert ? "−C_L" : "C_L"} ${(sg * player.cl).toFixed(3)} · C_D ${player.cd.toFixed(4)} · slow motion 1:${player.slow}`;
+  fctx.save();
+  fctx.font = `${12 * d}px "IBM Plex Mono", monospace`; fctx.textBaseline = "top"; fctx.textAlign = "left";
+  const pad = 8 * d;
+  for (const [txt, y] of [[l1, pad], [l2, H - pad - 18 * d]]) {
+    const w = fctx.measureText(txt).width;
+    fctx.fillStyle = "rgba(10,14,20,0.72)"; fctx.fillRect(pad, y, w + 12 * d, 18 * d);
+    fctx.fillStyle = "#f2f5f8"; fctx.fillText(txt, pad + 6 * d, y + 3 * d);
+  }
+  fctx.restore();
+}
+/* Frame-by-frame export: each frame is drawn at its exact movie time and encoded with
+   WebCodecs (explicit timestamps), then packed into MP4 (H.264), or WebM (VP9/VP8) where the
+   browser has no H.264 encoder. The video's speed and smoothness do not depend on how fast
+   this computer renders. Real-time canvas recording is the fallback where WebCodecs is missing. */
+const muxerLibs = {};
+const MUXERS = {
+  mp4: { url: "https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.js", name: "Mp4Muxer" },
+  webm: { url: "https://cdn.jsdelivr.net/npm/webm-muxer@5.0.3/build/webm-muxer.js", name: "WebMMuxer" },
+};
+function loadMuxer(kind) {
+  const L = MUXERS[kind];
+  if (window[L.name]) return Promise.resolve(window[L.name]);
+  return muxerLibs[kind] || (muxerLibs[kind] = new Promise((res, rej) => {
+    const sc = document.createElement("script");
+    sc.src = L.url;
+    sc.onload = () => res(window[L.name]); sc.onerror = () => { muxerLibs[kind] = null; rej(new Error("muxer did not load")); };
+    document.head.appendChild(sc);
+  }));
+}
+// H.264 High profile at a level large enough for the canvas, else VP9, else VP8
+async function pickEncoder(W, H) {
+  const base = { width: W, height: H, bitrate: 8e6, framerate: 30 };
+  const opts = [
+    ...["avc1.640028", "avc1.640032", "avc1.640033", "avc1.4d0028", "avc1.42002a"].map(codec => ({ kind: "mp4", mcodec: "avc", cfg: { ...base, codec, avc: { format: "avc" } } })),
+    { kind: "webm", mcodec: "V_VP9", cfg: { ...base, codec: "vp09.00.10.08" } },
+    { kind: "webm", mcodec: "V_VP8", cfg: { ...base, codec: "vp8" } },
+  ];
+  for (const o of opts) {
+    try { if ((await VideoEncoder.isConfigSupported(o.cfg)).supported) return o; } catch (e) { /* try the next */ }
+  }
+  return null;
+}
+async function startRecording() {
+  if (!player.active || player.recording) return;
+  if (typeof VideoEncoder === "undefined" || typeof VideoFrame === "undefined") return startRealtimeRecording();
+  const W = fcv.width & ~1, H = fcv.height & ~1;
+  let pick = await pickEncoder(W, H), M = null;
+  if (pick) { try { M = await loadMuxer(pick.kind); } catch (e) { M = null; } }
+  if (pick && !M && pick.kind === "mp4") {   // MP4 muxer unavailable: fall back to WebM
+    pick = null;
+    for (const c of [["V_VP9", "vp09.00.10.08"], ["V_VP8", "vp8"]]) {
+      const cfg = { width: W, height: H, bitrate: 8e6, framerate: 30, codec: c[1] };
+      try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) { pick = { kind: "webm", mcodec: c[0], cfg }; break; } } catch (e) { /* next */ }
+    }
+    if (pick) { try { M = await loadMuxer("webm"); } catch (e) { M = null; } }
+  }
+  if (!pick || !M) return startRealtimeRecording();
+  const cfg = pick.cfg, kind = pick.kind;
+  const target = new M.ArrayBufferTarget();
+  const muxer = kind === "mp4"
+    ? new M.Muxer({ target, video: { codec: "avc", width: W, height: H, frameRate: 30 }, fastStart: "in-memory" })
+    : new M.Muxer({ target, video: { codec: pick.mcodec, width: W, height: H, frameRate: 30 } });
+  let err = null;
+  const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { err = e; } });
+  enc.configure(cfg);
+  const rcd = player.recording = { frames: true, cancelled: false };
+  pausePlayer(); player.playing = true;   // movie time drives the smoke
+  const heldBefore = smoke.held;
+  if (pulse.on) resetPulses();   // the video starts with the first wave
+  if (smoke.on && smoke.placed) smoke.held = true;   // the probe keeps releasing smoke at its last position
+  $("btnVideo").textContent = "Cancel"; $("rngPlay").disabled = true; $("btnPlay").disabled = true;
+  const fr = player.frames, t0 = fr[0].t, t1 = fr[fr.length - 1].t, fps = 30, dtm = playRate() / fps;
+  const n = Math.max(2, Math.ceil((t1 - t0) / dtm) + 1);
+  const cc = (W !== fcv.width || H !== fcv.height) ? Object.assign(document.createElement("canvas"), { width: W, height: H }) : null;
+  for (let k = 0; k < n && !rcd.cancelled && !err; k++) {
+    if (smoke.on && k > 0) stepSmoke(1 / fps);
+    if (pulse.on && k > 0) stepPulses(1 / fps);
+    renderAt(Math.min(t1, t0 + k * dtm));   // field, plots, smoke and the overlay
+    let src = fcv;
+    if (cc) { cc.getContext("2d").drawImage(fcv, 0, 0); src = cc; }
+    const vf = new VideoFrame(src, { timestamp: Math.round(k * 1e6 / fps), duration: Math.round(1e6 / fps) });
+    enc.encode(vf, { keyFrame: k % 60 === 0 }); vf.close();
+    if (k % 4 === 0 || enc.encodeQueueSize > 4) {
+      setStatus("run", "Encoding video", `${Math.round(k / n * 100)} % · frame ${k + 1} of ${n} · ${(n / fps).toFixed(1)} s of video`);
+      await new Promise(r => setTimeout(r, 0));
+      while (enc.encodeQueueSize > 4 && !err) await new Promise(r => setTimeout(r, 5));
+    }
+  }
+  let blob = null;
+  try { if (!rcd.cancelled && !err) { await enc.flush(); muxer.finalize(); blob = new Blob([target.buffer], { type: kind === "mp4" ? "video/mp4" : "video/webm" }); } } catch (e) { err = err || e; }
+  try { enc.close(); } catch (e) { /* already closed */ }
+  player.recording = null; player.playing = false; smoke.held = heldBefore;
+  $("btnVideo").textContent = "Save video"; $("rngPlay").disabled = false; $("btnPlay").disabled = false;
+  renderAt(player.time);   // redraw without the overlay
+  if (smoke.on || pulse.on) kickSmoke();
+  if (err) setStatus("warn", "Video encoding failed", String(err.message || err));
+  else if (rcd.cancelled) setStatus("idle", "Video cancelled", "");
+  else offerVideo(blob, kind);
+}
+function startRealtimeRecording() {
+  if (!player.active || player.recording) return;
+  const type = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+  if (!type || !fcv.captureStream) { setStatus("warn", "Video recording is not supported here", "this browser cannot record the canvas"); return; }
+  const stream = fcv.captureStream(30), chunks = [];
+  const mr = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 8e6 });
+  mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  player.recording = { mr, chunks, type, cancelled: false };
+  mr.onstop = () => {
+    const r = player.recording; player.recording = null;
+    $("btnVideo").textContent = "Save video"; $("rngPlay").disabled = false; $("btnPlay").disabled = false;
+    stream.getTracks().forEach(t => t.stop());
+    drawField();   // remove the overlay
+    if (r && !r.cancelled && chunks.length) offerVideo(new Blob(chunks, { type: r.type.split(";")[0] }), r.type.includes("mp4") ? "mp4" : "webm");
+  };
+  $("btnVideo").textContent = "Stop and save"; $("rngPlay").disabled = true; $("btnPlay").disabled = true;
+  player.time = player.frames[0].t; renderAt(player.time);
+  mr.start(250);
+  setStatus("run", "Recording video", "one pass through the recorded run, in real time at the chosen slow motion");
+  startPlayer();
+}
+function stopRecording(cancel) {
+  const r = player.recording; if (!r) return;
+  if (r.frames) { r.cancelled = true; return; }   // frame-by-frame export: the button cancels
+  r.cancelled = !!cancel; pausePlayer();
+  if (r.mr.state !== "inactive") r.mr.stop();
+}
+async function offerVideo(blob, ext) {
+  const a = solvedFor.alpha.toFixed(1).replace(".", "p");
+  const filename = `${secFile(solvedFor.code)}${solvedFor.invert ? "-inverted" : ""}-a${a}-${solvedFor.kmh.toFixed(0)}kmh-urans.${ext}`;
+  const mb = (blob.size / 1048576).toFixed(1);
+  if (window.claude && window.claude.use) {
+    if (!dlNS) { setStatus("warn", "Saving files is not available here", ""); return; }
+    try {
+      const r = await dlNS.save({ filename, data: blob });
+      if (r && r.status === "saved") setStatus("ok", "Video saved", `${filename} · ${mb} MB`);
+      else setStatus("ok", "Video handed over", `${filename} · ${mb} MB`);
+    } catch (e) {
+      const c = e && e.code;
+      if (c === "declined") setStatus("idle", "Video not saved", "the save was declined");
+      else if (c === "rate_limited") setStatus("warn", "A save prompt is already open", "try again in a moment");
+      else if (c === "too_large") setStatus("warn", "Video too large", "use a coarser frame interval or a faster playback speed");
+      else { setStatus("warn", "Saving files is not available here", ""); $("btnVideo").hidden = true; }
+    }
+  } else {   // standalone page outside claude.ai
+    const url = URL.createObjectURL(blob), el = document.createElement("a");
+    el.href = url; el.download = filename; document.body.appendChild(el); el.click(); el.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    setStatus("ok", "Video saved", `${filename} · ${mb} MB`);
+  }
+}
+
+// pan / zoom / probe
+let drag = null;
+fcv.addEventListener("pointerdown", e => {
+  try { fcv.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or already released pointer */ }
+  if (smoke.on && !e.shiftKey && fields) { smoke.held = true; smoke.streak++; smokeMove(e); kickSmoke(); probe(e); return; }
+  drag = { x: e.clientX, y: e.clientY, cx: view.cx, cy: view.cy };
+});
+fcv.addEventListener("pointermove", e => {
+  if (smoke.held) { smokeMove(e); probe(e); }
+  else if (drag) {
+    const k = dpr() / view.s;
+    view.cx = drag.cx - (e.clientX - drag.x) * k; view.cy = drag.cy + (e.clientY - drag.y) * k;
+    clearViewSeg(); scheduleField();
+  } else probe(e);
+});
+fcv.addEventListener("pointerup", () => { drag = null; smoke.held = false; });
+fcv.addEventListener("pointercancel", () => { drag = null; smoke.held = false; });
+fcv.addEventListener("wheel", e => {
+  e.preventDefault();
+  const r = fcv.getBoundingClientRect(), d = dpr();
+  const mx = (e.clientX - r.left) * d, my = (e.clientY - r.top) * d;
+  const wx = view.cx + (mx - fcv.width / 2) / view.s, wy = view.cy - (my - fcv.height / 2) / view.s;
+  const f = Math.exp(-e.deltaY * 0.0015);
+  view.s = Math.min(Math.max(view.s * f, 2), 2e6);
+  view.cx = wx - (mx - fcv.width / 2) / view.s; view.cy = wy + (my - fcv.height / 2) / view.s;
+  clearViewSeg(); scheduleField();
+}, { passive: false });
+fcv.addEventListener("dblclick", () => { setView("section"); });
+fcv.addEventListener("pointerleave", () => { $("probeTag").textContent = idleTag(); });
+let fieldPending = false;
+function scheduleField() { if (!fieldPending) { fieldPending = true; requestAnimationFrame(() => { fieldPending = false; drawField(); }); } }
+
+function probe(e) {
+  if (!grid || !fields) return;
+  const r = fcv.getBoundingClientRect(), d = dpr();
+  const vx = view.cx + ((e.clientX - r.left) * d - fcv.width / 2) / view.s;
+  const vy = view.cy - ((e.clientY - r.top) * d - fcv.height / 2) / view.s;
+  const [x, y] = unrotPt(vx, vy);   // back to chord-aligned coordinates
+  const { NI, NJ, X, Y } = grid;
+  for (let j = 0; j < NJ - 1; j++) for (let i = 0; i < NI; i++) {
+    const ip = (i + 1) % NI, q = [j * NI + i, j * NI + ip, (j + 1) * NI + ip, (j + 1) * NI + i];
+    let inside = true, sgnRef = 0;
+    for (let k = 0; k < 4; k++) {
+      const a = q[k], b = q[(k + 1) % 4];
+      const cr = (X[b] - X[a]) * (y - Y[a]) - (Y[b] - Y[a]) * (x - X[a]);
+      const s = cr > 0 ? 1 : -1;
+      if (!sgnRef) sgnRef = s; else if (s !== sgnRef) { inside = false; break; }
+    }
+    if (inside) {
+      const c = j * NI + i, u = solvedFor.kmh / 3.6;
+      $("probeTag").textContent = `x/c ${x.toFixed(3)}  y/c ${y.toFixed(3)}   |u| ${(fields.speed[c] * u).toFixed(1)} m/s${fields.ux[c] < 0 ? " reversed" : ""}${fields.mach ? `   M ${fields.mach[c].toFixed(3)}` : ""}   Cp ${sgn(fields.cp[c], 2)}   νt/ν ${fields.nutRatio[c] < 10 ? fields.nutRatio[c].toFixed(1) : Math.round(fields.nutRatio[c]).toLocaleString("en-US")}`;
+      return;
+    }
+  }
+  $("probeTag").textContent = `x/c ${x.toFixed(3)}  y/c ${y.toFixed(3)}  inside the section`;
+}
+
+/* ---------- plots ---------- */
+function plotFrame(cv, pad) {
+  const ctx = cv.getContext("2d"), W = cv.width, H = cv.height, d = dpr();
+  ctx.clearRect(0, 0, W, H);
+  const P = { l: pad.l * d, r: W - pad.r * d, t: pad.t * d, b: H - pad.b * d };
+  ctx.font = `${10.5 * d}px "IBM Plex Mono", monospace`;
+  return { ctx, W, H, d, ...P };
+}
+function axisTicks(lo, hi, n) {
+  const step = niceLen((hi - lo) / n), out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(10));
+  return out;
+}
+
+function drawCp() {
+  const cv = $("cpCv"); if (!fields) return;
+  const F = plotFrame(cv, { l: 40, r: 10, t: 8, b: 26 }), { ctx, d } = F;
+  const w = fields.wall;
+  let lo = 1, hi = -1;
+  for (const v of w.cp) { if (-v > hi) hi = -v; if (-v < lo) lo = -v; }
+  lo = Math.floor(lo * 2) / 2; hi = Math.ceil(hi * 2) / 2;
+  const X = x => F.l + x * (F.r - F.l), Y = v => F.b - (v - lo) / (hi - lo) * (F.b - F.t);
+  ctx.strokeStyle = css("--line"); ctx.fillStyle = css("--muted"); ctx.lineWidth = d;
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (const v of axisTicks(lo, hi, 5)) { ctx.beginPath(); ctx.moveTo(F.l, Y(v)); ctx.lineTo(F.r, Y(v)); ctx.stroke(); ctx.fillText(sgn(v, Math.abs(v) < 1 && v % 1 ? 1 : 0).replace("−0", "0"), F.l - 6 * d, Y(v)); }
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (const x of [0, 0.2, 0.4, 0.6, 0.8, 1]) ctx.fillText(x.toFixed(1), X(x), F.b + 6 * d);
+  ctx.save(); ctx.textAlign = "right"; ctx.textBaseline = "bottom"; ctx.fillText("x/c", F.r - 3 * d, F.b - 3 * d); ctx.restore();
+  ctx.strokeStyle = css("--muted"); ctx.setLineDash([3 * d, 3 * d]); ctx.beginPath(); ctx.moveTo(F.l, Y(0)); ctx.lineTo(F.r, Y(0)); ctx.stroke(); ctx.setLineDash([]);
+  for (const [flag, color] of [[1, css("--accent")], [0, css("--series2")]]) {
+    ctx.beginPath(); let first = true;
+    for (let i = 0; i < w.x.length; i++) {
+      if (w.upper[i] !== flag) continue;
+      const px = X(w.x[i]), py = Y(-w.cp[i]);
+      first ? ctx.moveTo(px, py) : ctx.lineTo(px, py); first = false;
+    }
+    ctx.strokeStyle = color; ctx.lineWidth = 1.8 * d; ctx.stroke();
+  }
+}
+
+let sepState = null;
+function sepInfo(w) {
+  const out = { sides: [], frac: 0, first: null, firstSide: null };
+  for (const flag of [1, 0]) {
+    const pts = [];
+    for (let i = 0; i < w.x.length; i++) if (w.upper[i] === flag) pts.push([w.x[i], w.cf[i]]);
+    pts.sort((a, b) => a[0] - b[0]);
+    let sep = null, reat = null, len = 0;
+    for (let k = 1; k < pts.length; k++) {
+      const [x0, c0] = pts[k - 1], [x1, c1] = pts[k];
+      if (x0 < 0.05) continue;                        // skip the stagnation region
+      if (c0 < 0 && c1 < 0) len += x1 - x0; else if (c0 < 0 || c1 < 0) len += 0.5 * (x1 - x0);
+      const xz = x0 + (x1 - x0) * c0 / (c0 - c1);
+      if (xz > 0.99) continue;                        // sign flips at a blunt-TE corner come from the base flow
+      if (c0 >= 0 && c1 < 0 && sep === null) sep = xz;
+      else if (c0 < 0 && c1 >= 0 && sep !== null && reat === null) reat = xz;
+    }
+    const side = flag ? "upper" : "lower";
+    out.sides.push({ side, sep, reat, len });
+    out.frac += len;
+    if (sep !== null && (out.first === null || sep < out.first)) { out.first = sep; out.firstSide = side; }
+  }
+  return out;
+}
+/* Transition location per side: the first station (from the leading edge) where the boundary layer
+   carries eddy viscosity, i.e. the largest νt/ν within 0.02 c of the wall exceeds 5 at it and the next
+   two stations. null: laminar to the trailing edge. */
+function transitionInfo(w) {
+  const out = { upper: null, lower: null };
+  for (const [flag, key] of [[1, "upper"], [0, "lower"]]) {
+    const idx = []; for (let i = 0; i < w.x.length; i++) if (w.upper[i] === flag) idx.push(i);
+    idx.sort((a, b) => w.x[a] - w.x[b]);
+    for (let k = 0; k + 2 < idx.length; k++) if (w.gw[idx[k]] > 5 && w.gw[idx[k + 1]] > 5 && w.gw[idx[k + 2]] > 5) { out[key] = w.x[idx[k]]; break; }
+  }
+  return out;
+}
+function updateSep() {
+  if (!fields) return;
+  sepState = sepInfo(fields.wall);
+  const st = sepState;
+  if (st.first === null) { $("rSep").textContent = "attached"; $("nSep").textContent = "Cf > 0 aft of 5% chord"; return; }
+  const sd = st.sides.find(x => x.side === st.firstSide);
+  $("rSep").textContent = `x/c ${st.first.toFixed(2)}`;
+  $("nSep").textContent = `${st.firstSide} side · ${(sd.len * 100).toFixed(0)}% chord reversed${sd.reat ? ` · reattaches ${sd.reat.toFixed(2)}` : ""}`;
+}
+
+function drawCf() {
+  const cv = $("cfCv"); if (!fields) return;
+  const F = plotFrame(cv, { l: 46, r: 10, t: 8, b: 26 }), { ctx, d } = F;
+  const w = fields.wall;
+  const vals = []; for (let i = 0; i < w.x.length; i++) if (w.x[i] > 0.02) vals.push(w.cf[i] * 1000);
+  vals.sort((a, b) => a - b);
+  let lo = Math.min(-1, vals[Math.floor(vals.length * 0.01)] * 1.1), hi = Math.max(2, vals[Math.floor(vals.length * 0.75)] * 2.2);   // clip the leading-edge peak
+  const X = x => F.l + x * (F.r - F.l), Y = v => F.b - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (F.b - F.t);
+  ctx.strokeStyle = css("--line"); ctx.fillStyle = css("--muted"); ctx.lineWidth = d;
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (const v of axisTicks(lo, hi, 5)) { ctx.beginPath(); ctx.moveTo(F.l, Y(v)); ctx.lineTo(F.r, Y(v)); ctx.stroke(); ctx.fillText(sgn(v, v % 1 ? 1 : 0), F.l - 6 * d, Y(v)); }
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (const x of [0, 0.2, 0.4, 0.6, 0.8, 1]) ctx.fillText(x.toFixed(1), X(x), F.b + 6 * d);
+  ctx.save(); ctx.textAlign = "right"; ctx.textBaseline = "bottom"; ctx.fillText("x/c", F.r - 3 * d, F.b - 3 * d); ctx.restore();
+  ctx.save(); ctx.translate(11 * d, (F.t + F.b) / 2); ctx.rotate(-Math.PI / 2); ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("Cf × 1000", 0, 0); ctx.restore();
+  // reversed-flow band
+  ctx.fillStyle = css("--warn"); ctx.globalAlpha = 0.08; ctx.fillRect(F.l, Y(0), F.r - F.l, F.b - Y(0)); ctx.globalAlpha = 1;
+  ctx.strokeStyle = css("--fg"); ctx.lineWidth = d; ctx.beginPath(); ctx.moveTo(F.l, Y(0)); ctx.lineTo(F.r, Y(0)); ctx.stroke();
+  ctx.save(); ctx.beginPath(); ctx.rect(F.l, F.t, F.r - F.l, F.b - F.t); ctx.clip();
+  for (const [flag, color] of [[1, css("--accent")], [0, css("--series2")]]) {
+    const pts = [];
+    for (let i = 0; i < w.x.length; i++) if (w.upper[i] === flag && w.x[i] > 0.005) pts.push([w.x[i], w.cf[i] * 1000]);
+    pts.sort((a, b) => a[0] - b[0]);
+    ctx.beginPath(); pts.forEach(([x, v], n) => n ? ctx.lineTo(X(x), Y(v)) : ctx.moveTo(X(x), Y(v)));
+    ctx.strokeStyle = color; ctx.lineWidth = 1.8 * d; ctx.stroke();
+  }
+  ctx.restore();
+  const trI = w.gw ? transitionInfo(w) : null;
+  if (trI) for (const [x, color, row] of [[trI.upper, css("--accent"), 0], [trI.lower, css("--series2"), 1]]) {
+    if (x === null || x <= 0.03) continue;
+    ctx.strokeStyle = color; ctx.setLineDash([1.5 * d, 2.5 * d]); ctx.lineWidth = 1.4 * d;
+    ctx.beginPath(); ctx.moveTo(X(x), F.t); ctx.lineTo(X(x), F.b); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = color; ctx.font = `600 ${10.5 * d}px "IBM Plex Mono", monospace`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    const tw = ctx.measureText(`T ${x.toFixed(2)}`).width / 2 + 2 * d;
+    ctx.fillText(`T ${x.toFixed(2)}`, Math.min(F.r - tw, Math.max(F.l + tw, X(x))), F.b - 2 * d - row * 13 * d);
+    ctx.font = `${10.5 * d}px "IBM Plex Mono", monospace`;
+  }
+  if (sepState) for (const sd of sepState.sides) {
+    const color = sd.side === "upper" ? css("--accent") : css("--series2");
+    for (const [x, lab] of [[sd.sep, "S"], [sd.reat, "R"]]) {
+      if (x == null) continue;
+      ctx.strokeStyle = color; ctx.setLineDash([4 * d, 3 * d]); ctx.lineWidth = 1.2 * d;
+      ctx.beginPath(); ctx.moveTo(X(x), F.t); ctx.lineTo(X(x), F.b); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = color; ctx.font = `600 ${10.5 * d}px "IBM Plex Mono", monospace`; ctx.textAlign = "center"; ctx.textBaseline = "top";
+      const tw = ctx.measureText(`${lab} ${x.toFixed(2)}`).width / 2 + 2 * d;
+      ctx.fillText(`${lab} ${x.toFixed(2)}`, Math.min(F.r - tw, Math.max(F.l + tw, X(x))), F.t + 2 * d + (lab === "R" ? 13 * d : 0));
+      ctx.font = `${10.5 * d}px "IBM Plex Mono", monospace`;
+    }
+  }
+}
+
+function drawConv() {
+  if (uMode) { drawUHist(); return; }
+  const cv = $("convCv");
+  const F = plotFrame(cv, { l: 40, r: 44, t: 8, b: 26 }), { ctx, d } = F;
+  if (hist.length < 2) return;
+  const i0 = hist[0].it, i1 = Math.max(hist[hist.length - 1].it, i0 + 1);
+  const X = it => F.l + (it - i0) / (i1 - i0) * (F.r - F.l);
+  let rmin = 0, rmax = -6;
+  for (const h of hist) { const v = Math.log10(Math.max(h.resC, 1e-12)); if (v < rmin) rmin = v; if (v > rmax) rmax = v; }
+  rmin = Math.floor(Math.min(rmin, -1)); rmax = Math.max(Math.ceil(rmax), rmin + 1);
+  const Yr = v => F.b - (v - rmin) / (rmax - rmin) * (F.b - F.t);
+  const tail = hist.slice(Math.floor(hist.length * 0.2));
+  let cmin = Infinity, cmax = -Infinity;
+  for (const h of tail) { if (h.cl < cmin) cmin = h.cl; if (h.cl > cmax) cmax = h.cl; }
+  const pad = Math.max((cmax - cmin) * 0.15, 0.01); cmin -= pad; cmax += pad;
+  const Yc = v => F.b - (v - cmin) / (cmax - cmin) * (F.b - F.t);
+  ctx.strokeStyle = css("--line"); ctx.fillStyle = css("--muted"); ctx.lineWidth = d;
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (let v = rmin; v <= rmax; v++) { ctx.beginPath(); ctx.moveTo(F.l, Yr(v)); ctx.lineTo(F.r, Yr(v)); ctx.stroke(); ctx.fillText(`1e${v}`, F.l - 5 * d, Yr(v)); }
+  ctx.textAlign = "left";
+  for (const v of axisTicks(cmin, cmax, 4)) ctx.fillText(v.toFixed(Math.abs(cmax - cmin) < 0.05 ? 3 : 2), F.r + 5 * d, Yc(v));
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (const v of axisTicks(i0, i1, 4)) ctx.fillText(v.toLocaleString("en-US"), X(v), F.b + 6 * d);
+  ctx.beginPath(); hist.forEach((h, n) => { const px = X(h.it), py = Yr(Math.log10(Math.max(h.resC, 1e-12))); n ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+  ctx.strokeStyle = css("--muted"); ctx.lineWidth = 1.4 * d; ctx.stroke();
+  ctx.save(); ctx.beginPath(); ctx.rect(F.l, F.t, F.r - F.l, F.b - F.t); ctx.clip();
+  ctx.beginPath(); hist.forEach((h, n) => { const px = X(h.it), py = Yc(h.cl); n ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+  ctx.strokeStyle = css("--accent"); ctx.lineWidth = 1.8 * d; ctx.stroke(); ctx.restore();
+}
+
+/* ---------- polar sweep ---------- */
+function startSweep() {
+  const a = +$("swFrom").value, b = +$("swTo").value, st = Math.max(0.5, Math.abs(+$("swStep").value || 1));
+  if (!isFinite(a) || !isFinite(b)) return;
+  const list = [];
+  for (let v = a; a <= b ? v <= b + 1e-9 : v >= b - 1e-9; v += a <= b ? st : -st) list.push(+v.toFixed(3));
+  if (!list.length || list.length > 30) { setStatus("warn", "Check the sweep range", "Use at most 30 angles."); return; }
+  sweep = { list, k: 0, rows: [], code: P.code, invert: P.invert };
+  $("polarFig").hidden = false; $("polarTable").tBodies[0].innerHTML = "";
+  P.alpha = list[0]; $("rngA").value = P.alpha; updateFacts();
+  sweepStartIt = null;
+  solve(true);
+}
+let sweepStartIt = null;
+function sweepNext(m) {
+  const s = m.s, a = sweep.list[sweep.k];
+  const cl = sweep.invert ? -s.cl : s.cl, cm = s.cm;
+  sweep.rows.push({ a, cl, cd: s.cd, cdp: s.cdp, cdf: s.cdf, cm, its: s.it - runStartIt, ok: m.converged, sep: sepState ? sepState.first : null, sepSide: sepState ? sepState.firstSide : null });
+  renderPolar();
+  sweep.k++;
+  if (sweep.k >= sweep.list.length) { setStatus("ok", "Sweep finished", `${sweep.rows.length} angles`); sweep.done = true; return; }
+  P.alpha = sweep.list[sweep.k]; $("rngA").value = P.alpha; updateFacts();
+  solve(true);
+}
+function renderPolar() {
+  const rows = sweep.rows, inv = sweep.invert;
+  $("polarKey").textContent = `${secName(sweep.code)}${inv ? " inverted, downforce coefficient shown as positive" : ""}`;
+  $("polarTable").tBodies[0].innerHTML = rows.map(r => `<tr><td>${r.a.toFixed(1)}</td><td>${sgn(r.cl, 4)}</td><td>${r.cd.toFixed(5)}</td><td>${r.cdp.toFixed(5)}</td><td>${r.cdf.toFixed(5)}</td><td>${(r.cl / r.cd).toFixed(1)}</td><td>${sgn(r.cm, 4)}</td><td>${r.sep == null ? "—" : r.sep.toFixed(2) + (r.sepSide ? " " + r.sepSide[0] : "")}</td><td>${r.its.toLocaleString("en-US")}${r.ok ? "" : " (limit)"}</td></tr>`).join("");
+  const cv = $("polarCv");
+  const F = plotFrame(cv, { l: 44, r: 12, t: 10, b: 28 }), { ctx, d } = F;
+  const mid = (F.l + F.r) / 2, gap = 34 * d;
+  const panels = [{ l: F.l, r: mid - gap / 2, xs: rows.map(r => r.a), xl: "α (°)" }, { l: mid + gap / 2 + 10 * d, r: F.r, xs: rows.map(r => r.cd), xl: "CD" }];
+  const ys = rows.map(r => r.cl);
+  let ylo = Math.min(0, ...ys), yhi = Math.max(...ys); const yp = (yhi - ylo) * 0.08 || 0.1; ylo -= yp; yhi += yp;
+  for (const pn of panels) {
+    let xlo = Math.min(...pn.xs), xhi = Math.max(...pn.xs); const xp = (xhi - xlo) * 0.08 || 0.5; xlo -= xp; xhi += xp;
+    if (pn.xl === "CD") xlo = Math.max(0, xlo);
+    const X = v => pn.l + (v - xlo) / (xhi - xlo) * (pn.r - pn.l), Y = v => F.b - (v - ylo) / (yhi - ylo) * (F.b - F.t);
+    ctx.strokeStyle = css("--line"); ctx.fillStyle = css("--muted"); ctx.lineWidth = d;
+    ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    for (const v of axisTicks(ylo, yhi, 4)) { ctx.beginPath(); ctx.moveTo(pn.l, Y(v)); ctx.lineTo(pn.r, Y(v)); ctx.stroke(); ctx.fillText(sgn(v, 1), pn.l - 5 * d, Y(v)); }
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    for (const v of axisTicks(xlo, xhi, 4)) ctx.fillText(pn.xl === "CD" ? v.toFixed(3) : v.toFixed(0), X(v), F.b + 6 * d);
+    ctx.fillText(pn.xl, (pn.l + pn.r) / 2, F.b + 17 * d);
+    ctx.beginPath(); rows.forEach((r, n) => { const px = X(pn.xl === "CD" ? r.cd : r.a), py = Y(r.cl); n ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+    ctx.strokeStyle = css("--accent"); ctx.lineWidth = 1.8 * d; ctx.stroke();
+    ctx.fillStyle = css("--accent");
+    for (const r of rows) { ctx.beginPath(); ctx.arc(X(pn.xl === "CD" ? r.cd : r.a), Y(r.cl), 3 * d, 0, 7); ctx.fill(); }
+  }
+  ctx.save(); ctx.fillStyle = css("--muted"); ctx.translate(12 * d, (F.t + F.b) / 2); ctx.rotate(-Math.PI / 2); ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(inv ? "−CL" : "CL", 0, 0); ctx.restore();
+}
+
+/* ---------- controls ---------- */
+function bindSeg(id, attr, fn) {
+  const seg = $(id);
+  seg.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    seg.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    fn(b.dataset[attr]);
+  });
+}
+function clearViewSeg() { field.view = null; $("viewSeg").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", "false")); }
+function setView(v) { $("viewSeg").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.view === v))); field.view = v; fitView(v); drawField(); }
+bindSeg("fieldSeg", "field", v => { field.key = v; drawField(); });
+bindSeg("viewSeg", "view", v => setView(v));
+$("chkMesh").addEventListener("change", e => { field.mesh = e.target.checked; drawField(); });
+$("chkSmoke").addEventListener("change", e => {
+  smoke.on = e.target.checked; smoke.held = false; smoke.parts = [];
+  fcv.classList.toggle("smoke", smoke.on); $("selSmoke").hidden = !smoke.on; $("probeTag").textContent = idleTag(); drawField();
+});
+$("selSmoke").addEventListener("change", e => { smoke.slow = +e.target.value; smoke.parts = []; });
+$("chkStream").addEventListener("change", e => { field.stream = e.target.checked; drawField(); });
+$("chkPulse").addEventListener("change", e => { pulse.on = e.target.checked; resetPulses(); drawField(); if (pulse.on) kickSmoke(); });
+$("chkVec").addEventListener("change", e => { field.vec = e.target.checked; drawField(); });
+$("chkSonic").addEventListener("change", e => { field.sonic = e.target.checked; drawField(); });
+
+$("inCode").addEventListener("input", e => { P.code = e.target.value.trim(); updateFacts(); });
+function codeFromSliders() {
+  const m = +$("rngM").value, p = +$("rngPc").value, t = +$("rngT").value;
+  P.code = `${m}${m > 0 ? p : 0}${String(t).padStart(2, "0")}`; $("inCode").value = P.code; updateFacts();
+}
+for (const id of ["rngM", "rngPc", "rngT"]) $(id).addEventListener("input", codeFromSliders);
+// small live preview of the section as the sliders move (inverted if selected)
+function drawSection() {
+  const cv = $("secCv"); if (!cv) return;
+  const d = dpr(), r = cv.getBoundingClientRect(); if (!r.width) return;
+  cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d);
+  const ctx = cv.getContext("2d"), W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+  const c = P.code; if (!codeValid(c)) return;
+  const sg = P.invert ? -1 : 1, sh = sectionShape(c, P.invert, P.te || 0);
+  let ymin = 0, ymax = 0;
+  for (let k = 0; k <= 80; k++) { const x = k / 80; ymin = Math.min(ymin, sh.pt(x, false)[1]); ymax = Math.max(ymax, sh.pt(x, true)[1]); }
+  const pad = 8 * d, sc = Math.min(W - 2 * pad, (H - 2 * pad) / 0.34), x0 = (W - sc) / 2, yMid = H / 2 + 0.5 * (ymin + ymax) * sc;
+  const X = x => x0 + x * sc, Y = y => yMid - y * sc;
+  ctx.beginPath();
+  for (let k = 0; k <= 80; k++) { const x = 0.5 * (1 - Math.cos(Math.PI * k / 80)), q = sh.pt(1 - x, true); k ? ctx.lineTo(X(q[0]), Y(q[1])) : ctx.moveTo(X(q[0]), Y(q[1])); }
+  for (let k = 0; k <= 80; k++) { const x = 0.5 * (1 - Math.cos(Math.PI * k / 80)), q = sh.pt(x, false); ctx.lineTo(X(q[0]), Y(q[1])); }
+  ctx.closePath(); ctx.fillStyle = "#3a4654"; ctx.fill(); ctx.strokeStyle = css("--fg"); ctx.lineWidth = 1.2 * d; ctx.stroke();
+  if (sh.cambered) {   // camber line
+    ctx.beginPath();
+    for (let k = 0; k <= 60; k++) { const x = k / 60, yc = sh.camber(x); k ? ctx.lineTo(X(x), Y(yc)) : ctx.moveTo(X(x), Y(yc)); }
+    ctx.setLineDash([3 * d, 3 * d]); ctx.strokeStyle = css("--accent"); ctx.stroke(); ctx.setLineDash([]);
+  }
+}
+$("chkInv").addEventListener("change", e => { P.invert = e.target.checked; drawSection(); });
+$("rngA").addEventListener("input", e => { P.alpha = +e.target.value; updateFacts(); });
+$("rngV").addEventListener("input", e => { P.kmh = +e.target.value; updateFacts(); });
+// chord slider is logarithmic, 0.1 m to 10 m: steps of 1 cm up to 2 m, 5 cm above
+const chordFromSlider = v => { const c = 0.1 * 100 ** (v / 1000); return c < 2 ? Math.round(c * 100) / 100 : Math.round(c * 20) / 20; };
+const sliderFromChord = c => Math.round(1000 * Math.log(c / 0.1) / Math.log(100));
+$("rngC").addEventListener("input", e => { P.chord = chordFromSlider(+e.target.value); updateFacts(); });
+$("inMach").addEventListener("change", e => {
+  const M = Math.min(2, Math.max(0.04, +e.target.value || 0.25));
+  P.kmh = Math.round(M * AIR.a * 3.6 * 2) / 2; $("rngV").value = P.kmh; updateFacts(); $("inMach").value = M.toFixed(3);
+});
+$("selComp").addEventListener("change", e => { P.comp = e.target.value === "1"; $("specFlow").textContent = P.comp ? "compressible, all speeds" : "incompressible"; updateFacts(); });
+$("selMesh").addEventListener("change", e => { P.mesh = +e.target.value; });
+$("selTE").addEventListener("change", e => { const B = builtinSection(P.code); P.te = e.target.value === "pub" ? (B ? B.gap : 0) : +e.target.value; updateFacts(); });
+let nacaCode = P.code;   // last NACA 4-digit code, restored when switching back to that family
+$("selSec").addEventListener("change", e => {
+  const v = e.target.value;
+  if (v === "DW" || v === "BC" || v === "WG") {
+    if (!SECTIONS[P.code] && !sharpSection(P.code)) nacaCode = P.code;
+    sharpUI.fam = v; $("rngSt").min = v === "WG" ? 4 : 2; $("rngSt").max = v === "WG" ? 25 : 12; $("rngSt").value = sharpUI.t[v];
+    supApply(); return;
+  }
+  if (v === "CY") {   // circle: diameter = chord, no trailing edge, symmetric
+    if (!SECTIONS[P.code] && !sharpSection(P.code)) nacaCode = P.code;
+    P.code = "CY"; P.te = 0; $("selTE").value = "0"; P.invert = false; $("chkInv").checked = false;
+    updateFacts(); return;
+  }
+  if (v === "naca") { P.code = nacaCode; $("inCode").value = P.code; if ($("selTE").value === "pub") { P.te = 0.005; $("selTE").value = "0.005"; } }
+  else {
+    if (!SECTIONS[P.code] && !sharpSection(P.code)) nacaCode = P.code;
+    P.code = v; const B = builtinSection(v);
+    if (B.gap > 1e-4) { P.te = B.gap; $("selTE").value = "pub"; } else { P.te = 0; $("selTE").value = "0"; }
+  }
+  updateFacts();
+});
+// sharp-edged supersonic sections: thickness per family, shoulder for the double wedge
+const sharpUI = { fam: "DW", t: { DW: 6, BC: 6, WG: 17.5 }, xs: 50 };
+function supApply() {
+  const f = sharpUI.fam, t = sharpUI.t[f];
+  P.code = f === "DW" ? `DW:${t}${sharpUI.xs !== 50 ? `:${sharpUI.xs}` : ""}` : `${f}:${t}`;
+  if (f === "WG") P.te = t / 100;   // the base is the trailing-edge thickness
+  else if ($("selTE").value === "pub" || P.te > 0.011) { P.te = 0; $("selTE").value = "0"; }
+  P.invert = false; $("chkInv").checked = false;
+  updateFacts();
+}
+$("rngSt").addEventListener("input", e => { sharpUI.t[sharpUI.fam] = +e.target.value; supApply(); });
+$("rngSx").addEventListener("input", e => { sharpUI.xs = +e.target.value; supApply(); });
+$("selAdapt").addEventListener("change", e => { P.adapt = +e.target.value; uransNote(); });
+const turbName = () => P.turb === "sstg" ? "k-ω SST + γ transition" : P.turb === "sst" ? "k-ω SST" : "Spalart–Allmaras";
+$("selTurb").addEventListener("change", e => { P.turb = e.target.value; $("specModel").textContent = turbName(); $("rowTu").hidden = P.turb !== "sstg"; });
+$("selTu").addEventListener("change", e => { P.tu = +e.target.value; });
+function tolText() { $("tolInfo").textContent = `ΔC_L < ${(2e-4 * P.tol).toExponential(0)}, ΔC_D < ${(2e-5 * P.tol).toExponential(0)}`; }
+$("selTol").addEventListener("change", e => { P.tol = +e.target.value; tolText(); if (worker) worker.postMessage({ type: "tol", tol: P.tol }); });
+tolText();
+$("btnSolve").addEventListener("click", () => solve(false));
+$("btnReset").addEventListener("click", resetFlow);
+$("chkFresh").addEventListener("change", e => { freshStart = e.target.checked; });
+$("chkUrans").addEventListener("change", e => { urans.on = e.target.checked; $("uransOpts").hidden = !urans.on; $("uransStart").hidden = !urans.on; $("recRow").hidden = !urans.on; $("recOpts").hidden = !(urans.on && rec.on); uransNote(); });
+$("chkRec").addEventListener("change", e => { rec.on = e.target.checked; $("recOpts").hidden = !rec.on; uransNote(); });
+$("selRecEvery").addEventListener("change", e => { rec.every = +e.target.value; uransNote(); });
+$("selRecWin").addEventListener("change", e => { rec.win = e.target.value; uransNote(); });
+$("btnPlay").addEventListener("click", () => { if (player.playing) pausePlayer(); else startPlayer(); });
+$("rngPlay").addEventListener("input", e => {
+  if (player.recording) return;
+  pausePlayer(); resetPulses();
+  const t0 = player.frames[0].t, t1 = player.frames[player.frames.length - 1].t;
+  renderAt(t0 + (+e.target.value / 1000) * (t1 - t0));
+});
+$("selPlaySpeed").addEventListener("change", e => { player.slow = +e.target.value; });
+$("chkLoop").addEventListener("change", e => { player.loop = e.target.checked; });
+$("btnVideo").addEventListener("click", () => { if (player.recording) stopRecording(); else startRecording(); });
+if (window.claude && window.claude.use) window.claude.use("downloads").then(d => { dlNS = d; if (!d) $("btnVideo").hidden = true; }).catch(() => { $("btnVideo").hidden = true; });
+$("selDt").addEventListener("change", e => { urans.dt = +e.target.value; uransNote(); });
+$("selTend").addEventListener("change", e => { urans.tEnd = +e.target.value; uransNote(); });
+$("selStart").addEventListener("change", e => { urans.fromRest = e.target.value === "rest"; uransNote(); });
+$("selGust").addEventListener("change", e => { urans.gust = e.target.value === "1"; });
+$("selInner").addEventListener("change", e => { urans.inner = +e.target.value; uransNote(); });
+$("btnPause").addEventListener("click", () => {
+  if (running) { worker.postMessage({ type: "pause" }); running = false; $("btnPause").textContent = "Resume"; setStatus("idle", "Paused", last ? `iteration ${last.it.toLocaleString("en-US")}` : ""); }
+  else { worker.postMessage({ type: "run" }); running = true; $("btnPause").textContent = "Pause"; }
+});
+$("btnSweep").addEventListener("click", startSweep);
+$("btnVal").addEventListener("click", () => {
+  P.code = "0012"; $("selSec").value = "naca"; P.invert = false; P.te = 0; $("selTE").value = "0"; P.alpha = 10; P.chord = 1.0; P.kmh = +(6e6 * AIR.nu / 1.0 * 3.6).toFixed(1);
+  $("inCode").value = P.code; $("chkInv").checked = false; $("rngA").value = P.alpha; $("rngC").value = sliderFromChord(P.chord); $("rngV").value = P.kmh;
+  updateFacts(); solve(false);
+});
+
+/* ---------- sizing / theme ---------- */
+function resize() {
+  const d = dpr();
+  const prevW = fcv.width;
+  for (const cv of [fcv, $("cpCv"), $("cfCv"), $("convCv"), $("polarCv")]) {
+    const r = cv.getBoundingClientRect();
+    if (r.width) { cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d); }
+  }
+  if (prevW && fcv.width && field.view) fitView(field.view); else if (prevW && fcv.width) view.s *= fcv.width / prevW;
+  drawField(); drawCp(); drawCf(); drawConv(); drawSection(); if (sweep && sweep.rows.length) renderPolar();
+}
+new ResizeObserver(resize).observe(document.querySelector(".stage"));
+if (window.matchMedia) matchMedia("(prefers-color-scheme: dark)").addEventListener("change", resize);
+new MutationObserver(resize).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+updateFacts();
+startWorker();
+resize();
+solve(false);
+})();
+</script>

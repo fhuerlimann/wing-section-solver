@@ -1,0 +1,875 @@
+<meta charset="utf-8">
+<title>Pocket Wind Tunnel</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: instrument bench. Test section on the left, control rack on the right, readout strip beneath. */
+:root {
+  --bg: #e9edf1;
+  --panel: #f8fafb;
+  --fg: #111b24;
+  --muted: #56636f;
+  --line: #cfd7df;
+  --accent: #c2410c;
+  --accent-ink: #ffffff;
+  --tunnel: #070b10;
+  --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1217; --panel: #131b22; --fg: #e2e8ed; --muted: #8b99a5; --line: #26323c;
+    --accent: #ff8a4c; --accent-ink: #1a0d05; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1217; --panel: #131b22; --fg: #e2e8ed; --muted: #8b99a5; --line: #26323c;
+  --accent: #ff8a4c; --accent-ink: #1a0d05; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--f-body); font-size: 14px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+.wrap { max-width: 1280px; margin: 0 auto; display: grid; gap: 18px; }
+
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 24px; }
+h1 {
+  font-family: var(--f-display); font-stretch: 72%; font-weight: 800;
+  font-size: clamp(28px, 4.2vw, 44px); line-height: 1; margin: 0; letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.spec { font-family: var(--f-mono); font-size: 12px; color: var(--muted); margin: 0; }
+
+.bench { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; align-items: start; }
+@media (max-width: 900px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+
+.stage { display: grid; gap: 12px; min-width: 0; }
+.tunnel {
+  position: relative; width: 100%; max-width: 100%; aspect-ratio: 2 / 1;
+  background: var(--tunnel); border-radius: 4px; overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.tunnel canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; display: block; }
+.tag {
+  position: absolute; font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.04em;
+  color: rgba(226, 234, 240, 0.78); pointer-events: none; white-space: nowrap;
+}
+.tag.inlet { left: 10px; top: 8px; }
+.tag.hint { right: 10px; top: 8px; text-align: right; }
+.tag.probe { left: 10px; bottom: 8px; }
+
+.scalebar { display: flex; align-items: center; gap: 10px; font-family: var(--f-mono); font-size: 11px; color: var(--muted); }
+.scalebar .bar { flex: 1; height: 8px; border-radius: 2px; min-width: 0; }
+
+.readouts { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+@media (max-width: 720px) { .readouts { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 420px) { .readouts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ro { background: var(--panel); padding: 10px 12px; display: grid; gap: 2px; min-width: 0; }
+.ro .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.ro .v { font-family: var(--f-mono); font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ro .n { font-size: 11px; color: var(--muted); }
+
+.trace { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; display: grid; gap: 6px; }
+.trace .head { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; color: var(--muted); }
+.trace .head b { font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; font-size: 10.5px; }
+#spark { width: 100%; height: 70px; display: block; }
+
+.rack { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; display: grid; }
+.group { padding: 14px 16px; display: grid; gap: 10px; border-top: 1px solid var(--line); }
+.group:first-child { border-top: 0; }
+.group h2 {
+  margin: 0; font-family: var(--f-display); font-stretch: 85%; font-weight: 700; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted);
+}
+.row { display: grid; gap: 4px; }
+.row label, .row .lbl { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.row output, .row .val { font-family: var(--f-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.row output sup { font-size: 9px; }
+input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
+input[type="range"]:disabled { opacity: 0.4; }
+select {
+  width: 100%; font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 3px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+}
+.check { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.seg button {
+  font: inherit; font-size: 12px; padding: 7px 4px; border: 0; border-left: 1px solid var(--line);
+  background: var(--bg); color: var(--fg); cursor: pointer;
+}
+.seg button:first-child { border-left: 0; }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 600; }
+.btns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.btn {
+  font: inherit; font-size: 12.5px; font-weight: 600; padding: 8px 6px; border-radius: 3px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn:hover { border-color: var(--muted); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.method { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px 36px; padding-top: 8px; border-top: 1px solid var(--line); }
+@media (max-width: 760px) { .method { grid-template-columns: minmax(0, 1fr); } }
+.method h3 { margin: 0 0 6px; font-family: var(--f-display); font-stretch: 80%; font-size: 17px; font-weight: 700; }
+.method p, .method li { color: var(--muted); max-width: 65ch; margin: 0; }
+.method ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.eq { font-family: var(--f-mono); font-size: 12.5px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 8px 10px; margin: 8px 0; overflow-x: auto; white-space: nowrap; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Pocket Wind Tunnel</h1>
+    <p class="spec">2D incompressible Navier–Stokes · staggered MAC grid · test section 2.0 m × 1.0 m · ρ = 1 kg/m³</p>
+  </header>
+
+  <div class="bench">
+    <div class="stage">
+      <div class="tunnel" id="tunnel">
+        <canvas id="view" aria-label="Flow field in the wind tunnel test section"></canvas>
+        <div class="tag inlet" id="inletTag">INLET → U = 1.50 m/s</div>
+        <div class="tag hint" id="hintTag">Drag to move the cylinder</div>
+        <div class="tag probe" id="probeTag">Hover to probe the flow</div>
+      </div>
+      <div class="scalebar">
+        <span id="cbMin">clean air</span>
+        <div class="bar" id="cbBar"></div>
+        <span id="cbMax">dye</span>
+      </div>
+      <div class="readouts">
+        <div class="ro"><span class="k">Reynolds</span><span class="v" id="roRe">—</span><span class="n">U·L/ν, nominal</span></div>
+        <div class="ro"><span class="k">Drag C<sub>d</sub></span><span class="v" id="roCd">—</span><span class="n">pressure only</span></div>
+        <div class="ro"><span class="k">Lift C<sub>l</sub></span><span class="v" id="roCl">—</span><span class="n">pressure only</span></div>
+        <div class="ro"><span class="k">Strouhal</span><span class="v" id="roSt">—</span><span class="n">f·L/U from lift</span></div>
+        <div class="ro"><span class="k">Sim time</span><span class="v" id="roT">0.00 s</span><span class="n">Δt = 1/60 s</span></div>
+        <div class="ro"><span class="k">Solver</span><span class="v" id="roMs">—</span><span class="n" id="roGrid">240 × 120 cells</span></div>
+      </div>
+      <div class="trace">
+        <div class="head"><b>Lift coefficient, last 8 s</b><span id="sparkRange">±0.5</span></div>
+        <canvas id="spark" aria-label="Lift coefficient history"></canvas>
+      </div>
+    </div>
+
+    <aside class="rack" aria-label="Simulation controls">
+      <div class="group">
+        <h2>Run</h2>
+        <div class="btns">
+          <button class="btn primary" id="btnRun">Pause</button>
+          <button class="btn" id="btnStep">Step</button>
+          <button class="btn" id="btnReset">Reset flow</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <h2>Display</h2>
+        <div class="seg" role="group" aria-label="Field to display" id="viewSeg">
+          <button data-view="smoke" aria-pressed="true">Smoke</button>
+          <button data-view="vort" aria-pressed="false">Vorticity</button>
+          <button data-view="speed" aria-pressed="false">Speed</button>
+          <button data-view="press" aria-pressed="false">Pressure</button>
+        </div>
+        <label class="check"><input type="checkbox" id="chkStream"> Streamlines</label>
+      </div>
+
+      <div class="group">
+        <h2>Model</h2>
+        <div class="row">
+          <span class="lbl"><label for="selShape">Shape</label></span>
+          <select id="selShape">
+            <option value="cylinder">Circular cylinder</option>
+            <option value="square">Square prism</option>
+            <option value="plate">Flat plate</option>
+            <option value="airfoil">NACA 0012 airfoil</option>
+            <option value="none">None (draw your own)</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="rngSize"><span id="sizeName">Diameter L</span><output id="outSize">0.16 m</output></label>
+          <input type="range" id="rngSize" min="0.06" max="0.5" step="0.01" value="0.16">
+        </div>
+        <div class="row">
+          <label for="rngAoa">Angle of attack<output id="outAoa">0°</output></label>
+          <input type="range" id="rngAoa" min="-25" max="25" step="1" value="0" disabled>
+        </div>
+      </div>
+
+      <div class="group">
+        <h2>Pointer tool</h2>
+        <div class="seg" role="group" aria-label="Pointer tool" id="toolSeg">
+          <button data-tool="move" aria-pressed="true">Move</button>
+          <button data-tool="wall" aria-pressed="false">Draw wall</button>
+          <button data-tool="erase" aria-pressed="false">Erase</button>
+        </div>
+        <button class="btn" id="btnClear">Clear drawn walls</button>
+      </div>
+
+      <div class="group">
+        <h2>Flow</h2>
+        <div class="row">
+          <label for="rngU">Inflow speed U<output id="outU">1.50 m/s</output></label>
+          <input type="range" id="rngU" min="0.2" max="3" step="0.05" value="1.5">
+        </div>
+        <div class="row">
+          <label for="rngNu">Kinematic viscosity ν<output id="outNu"></output></label>
+          <input type="range" id="rngNu" min="0" max="100" step="1" value="43">
+        </div>
+      </div>
+
+      <div class="group">
+        <h2>Solver</h2>
+        <div class="row">
+          <span class="lbl"><label for="selRes">Grid</label></span>
+          <select id="selRes">
+            <option value="80">160 × 80 (fast)</option>
+            <option value="120" selected>240 × 120</option>
+            <option value="160">320 × 160</option>
+            <option value="200">400 × 200 (slow)</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="rngIt">Pressure iterations<output id="outIt">40</output></label>
+          <input type="range" id="rngIt" min="5" max="120" step="1" value="40">
+        </div>
+        <div class="row">
+          <label for="rngOm">Over-relaxation ω<output id="outOm">1.90</output></label>
+          <input type="range" id="rngOm" min="1" max="1.98" step="0.01" value="1.9">
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <section class="method">
+    <div>
+      <h3>What is being solved</h3>
+      <p>The incompressible Navier–Stokes equations in two dimensions, with constant density and an optional physical viscosity:</p>
+      <div class="eq">∂u/∂t + (u·∇)u = −∇p/ρ + ν∇²u &nbsp;&nbsp; ∇·u = 0</div>
+      <p>Air enters from the left at speed U. The top and bottom walls are free-slip, the right edge is an open outlet, and obstacles are no-slip. Forces are integrated from cell pressures only, so drag excludes skin friction. The upwind advection adds numerical viscosity, so the true Reynolds number is lower than the nominal value shown.</p>
+    </div>
+    <div>
+      <h3>One time step</h3>
+      <ol>
+        <li>Mark solid cells and give their faces the obstacle's velocity (zero for drawn walls).</li>
+        <li>Diffuse velocity implicitly with Gauss–Seidel sweeps when ν &gt; 0.</li>
+        <li>Project: successive over-relaxation drives the divergence of every fluid cell to zero and accumulates pressure.</li>
+        <li>Advect velocity and dye semi-Lagrangian: trace each sample backwards along the flow and interpolate bilinearly.</li>
+        <li>Sum pressure on solid faces to get drag and lift; count lift oscillations to estimate the shedding frequency.</li>
+      </ol>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+"use strict";
+const $ = id => document.getElementById(id);
+const RHO = 1.0, DT = 1 / 60, ASPECT = 2;
+
+const SHAPES = {
+  cylinder: { size: 0.16, aoa: false, name: "Diameter L", noun: "cylinder" },
+  square:   { size: 0.14, aoa: true,  name: "Side L",     noun: "prism" },
+  plate:    { size: 0.30, aoa: true,  name: "Length L",   noun: "plate" },
+  airfoil:  { size: 0.40, aoa: true,  name: "Chord L",    noun: "airfoil" },
+  none:     { size: 0.20, aoa: false, name: "Size",       noun: "" }
+};
+
+const reduceMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+const P = {
+  U: 1.5, nu: 0, res: 120, iters: 40, omega: 1.9,
+  shape: "cylinder", size: 0.16, aoa: 0,
+  view: "smoke", streamlines: false, tool: "move", running: !reduceMotion
+};
+
+/* ---------- fluid state ---------- */
+let F;
+const body = { x: 0.45, y: 0.5, tx: 0.45, ty: 0.5, vx: 0, vy: 0 };
+
+function makeFluid(nY) {
+  const nX = nY * ASPECT, n = nX * nY;
+  const A = () => new Float64Array(n);
+  return {
+    nX, nY, n, h: 1 / nY,
+    u: A(), v: A(), u0: A(), v0: A(), p: A(), s: A(), d: A(), d0: A(),
+    wall: new Uint8Array(n), shape: new Uint8Array(n), t: 0
+  };
+}
+
+function dyeAt(j) {
+  const sp = Math.max(4, Math.round(F.nY / 14));
+  return (j % sp) < Math.max(1, Math.round(sp * 0.3)) ? 1 : 0;
+}
+
+/* shape membership in world coordinates (x right, y up) */
+function insideShape(x, y) {
+  const dx = x - body.x, dy = y - body.y, L = P.size, h = F.h;
+  switch (P.shape) {
+    case "cylinder": return dx * dx + dy * dy < 0.25 * L * L;
+    case "none": return false;
+  }
+  const a = P.aoa * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+  const xl = dx * c - dy * s, yl = dx * s + dy * c;
+  if (P.shape === "square") return Math.abs(xl) < L / 2 && Math.abs(yl) < L / 2;
+  if (P.shape === "plate") return Math.abs(xl) < L / 2 && Math.abs(yl) < Math.max(1.2 * h, 0.012);
+  // NACA 0012, pivot at quarter chord
+  const xc = (xl + L / 4) / L;
+  if (xc < 0 || xc > 1) return false;
+  return Math.abs(yl) <= Math.max(naca(xc) * L, 0.55 * h);
+}
+function naca(x) {
+  return 5 * 0.12 * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x * x + 0.2843 * x * x * x - 0.1036 * x * x * x * x);
+}
+function shapeOutline() {
+  const L = P.size, pts = [];
+  if (P.shape === "cylinder") {
+    for (let k = 0; k < 64; k++) { const t = k / 64 * 2 * Math.PI; pts.push([0.5 * L * Math.cos(t), 0.5 * L * Math.sin(t)]); }
+    return pts.map(([x, y]) => [body.x + x, body.y + y]);
+  }
+  if (P.shape === "square") pts.push([-L/2,-L/2],[L/2,-L/2],[L/2,L/2],[-L/2,L/2]);
+  else if (P.shape === "plate") { const t = Math.max(1.2 * F.h, 0.012); pts.push([-L/2,-t],[L/2,-t],[L/2,t],[-L/2,t]); }
+  else if (P.shape === "airfoil") {
+    const N = 48;
+    for (let k = 0; k <= N; k++) { const x = (1 - Math.cos(Math.PI * k / N)) / 2; pts.push([x * L - L / 4, naca(x) * L]); }
+    for (let k = N; k >= 0; k--) { const x = (1 - Math.cos(Math.PI * k / N)) / 2; pts.push([x * L - L / 4, -naca(x) * L]); }
+  } else return [];
+  const a = P.aoa * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+  return pts.map(([xl, yl]) => [body.x + c * xl + s * yl, body.y - s * xl + c * yl]);
+}
+
+/* ---------- solver ---------- */
+function updateSolids(dt) {
+  const { nX, nY, h, s, u, v, wall, shape, d } = F;
+  body.vx = (body.tx - body.x) / dt; body.vy = (body.ty - body.y) / dt;
+  body.x = body.tx; body.y = body.ty;
+
+  for (let i = 0; i < nX; i++) {
+    for (let j = 0; j < nY; j++) {
+      const k = i * nY + j;
+      let solid = i === 0 || j === 0 || j === nY - 1;
+      if (!solid && wall[k]) {
+        solid = true;
+        u[k] = 0; if (i + 1 < nX) u[k + nY] = 0;
+        v[k] = 0; v[k + 1] = 0; d[k] = 0;
+      }
+      s[k] = solid ? 0 : 1;
+      shape[k] = 0;
+    }
+  }
+  if (P.shape === "none") return;
+  const R = P.size * 0.8 + 3 * h;
+  const i0 = Math.max(1, Math.floor((body.x - R) / h)), i1 = Math.min(nX - 1, Math.ceil((body.x + R) / h));
+  const j0 = Math.max(1, Math.floor((body.y - R) / h)), j1 = Math.min(nY - 2, Math.ceil((body.y + R) / h));
+  for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) {
+      if (!insideShape((i + 0.5) * h, (j + 0.5) * h)) continue;
+      const k = i * nY + j;
+      s[k] = 0; shape[k] = 1; d[k] = 0;
+      u[k] = body.vx; if (i + 1 < nX) u[k + nY] = body.vx;
+      v[k] = body.vy; v[k + 1] = body.vy;
+    }
+  }
+}
+
+function applyInflow() {
+  const { nY, u, s, d } = F;
+  for (let j = 1; j < nY - 1; j++) {
+    if (s[nY + j]) u[nY + j] = P.U;
+    d[j] = dyeAt(j);
+  }
+}
+
+function diffuse(dt) {
+  if (P.nu <= 0) return;
+  const { nX, nY, h, s, u, v, u0, v0 } = F;
+  const a = P.nu * dt / (h * h), inv = 1 / (1 + 4 * a);
+  u0.set(u); v0.set(v);
+  for (let it = 0; it < 6; it++) {
+    for (let i = 1; i < nX - 1; i++) {
+      for (let j = 1; j < nY - 1; j++) {
+        const k = i * nY + j;
+        if (s[k] && s[k - nY]) u[k] = (u0[k] + a * (u[k - nY] + u[k + nY] + u[k - 1] + u[k + 1])) * inv;
+        if (j > 1 && s[k] && s[k - 1]) v[k] = (v0[k] + a * (v[k - nY] + v[k + nY] + v[k - 1] + v[k + 1])) * inv;
+      }
+    }
+  }
+}
+
+function project(dt) {
+  const { nX, nY, h, s, u, v, p } = F;
+  const cp = RHO * h / dt, om = P.omega;
+  p.fill(0);
+  for (let it = 0; it < P.iters; it++) {
+    for (let i = 1; i < nX - 1; i++) {
+      for (let j = 1; j < nY - 1; j++) {
+        const k = i * nY + j;
+        if (s[k] === 0) continue;
+        const sx0 = s[k - nY], sx1 = s[k + nY], sy0 = s[k - 1], sy1 = s[k + 1];
+        const ss = sx0 + sx1 + sy0 + sy1;
+        if (ss === 0) continue;
+        const div = u[k + nY] - u[k] + v[k + 1] - v[k];
+        const pp = -div / ss * om;
+        p[k] += cp * pp;
+        u[k] -= sx0 * pp; u[k + nY] += sx1 * pp;
+        v[k] -= sy0 * pp; v[k + 1] += sy1 * pp;
+      }
+    }
+  }
+}
+
+function extrapolate() {
+  const { nX, nY, u, v } = F;
+  for (let i = 0; i < nX; i++) { u[i * nY] = u[i * nY + 1]; u[i * nY + nY - 1] = u[i * nY + nY - 2]; }
+  for (let j = 0; j < nY; j++) { v[j] = v[nY + j]; v[(nX - 1) * nY + j] = v[(nX - 2) * nY + j]; }
+}
+
+let gX = 0, gY = 0, gH = 1;   // grid dims cached for the hot sampling path
+function sample(x, y, f, dx, dy) {
+  const nX = gX, nY = gY, h = gH, h1 = 1 / h;
+  x = Math.max(Math.min(x, nX * h), h);
+  y = Math.max(Math.min(y, nY * h), h);
+  const x0 = Math.min(Math.floor((x - dx) * h1), nX - 1), tx = ((x - dx) - x0 * h) * h1, x1 = Math.min(x0 + 1, nX - 1);
+  const y0 = Math.min(Math.floor((y - dy) * h1), nY - 1), ty = ((y - dy) - y0 * h) * h1, y1 = Math.min(y0 + 1, nY - 1);
+  const sx = 1 - tx, sy = 1 - ty;
+  return sx * sy * f[x0 * nY + y0] + tx * sy * f[x1 * nY + y0] + tx * ty * f[x1 * nY + y1] + sx * ty * f[x0 * nY + y1];
+}
+
+function advectVel(dt) {
+  const { nX, nY, h, s, u, v, u0, v0 } = F, h2 = h / 2;
+  u0.set(u); v0.set(v);
+  for (let i = 1; i < nX; i++) {
+    for (let j = 1; j < nY; j++) {
+      const k = i * nY + j;
+      if (s[k] && s[k - nY] && j < nY - 1) {
+        const vv = (v[k - nY] + v[k] + v[k - nY + 1] + v[k + 1]) * 0.25;
+        u0[k] = sample(i * h - dt * u[k], j * h + h2 - dt * vv, u, 0, h2);
+      }
+      if (s[k] && s[k - 1] && i < nX - 1) {
+        const uu = (u[k - 1] + u[k] + u[k + nY - 1] + u[k + nY]) * 0.25;
+        v0[k] = sample(i * h + h2 - dt * uu, j * h - dt * v[k], v, h2, 0);
+      }
+    }
+  }
+  F.u = u0; F.u0 = u; F.v = v0; F.v0 = v;
+}
+
+function advectDye(dt) {
+  const { nX, nY, h, s, u, v, d, d0 } = F, h2 = h / 2;
+  d0.set(d);
+  for (let i = 1; i < nX - 1; i++) {
+    for (let j = 1; j < nY - 1; j++) {
+      const k = i * nY + j;
+      if (!s[k]) continue;
+      const uu = (u[k] + u[k + nY]) * 0.5, vv = (v[k] + v[k + 1]) * 0.5;
+      d0[k] = sample(i * h + h2 - dt * uu, j * h + h2 - dt * vv, d, h2, h2);
+    }
+  }
+  F.d = d0; F.d0 = d;
+}
+
+/* ---------- forces and shedding ---------- */
+const stats = { cd: NaN, cl: NaN, cdS: NaN, clS: NaN, st: null };
+let hist = [];
+
+function refLength() {
+  if (P.shape !== "none") return P.size;
+  const { nX, nY, wall, h } = F; let rows = 0;
+  for (let j = 1; j < nY - 1; j++) for (let i = 1; i < nX - 1; i++) if (wall[i * nY + j]) { rows++; break; }
+  return rows * h;
+}
+
+function computeForces() {
+  const { nX, nY, h, s, p } = F;
+  let fx = 0, fy = 0, any = false;
+  for (let i = 1; i < nX - 1; i++) {
+    for (let j = 1; j < nY - 1; j++) {
+      const k = i * nY + j;
+      if (s[k]) continue;
+      any = true;
+      if (s[k - nY]) fx += p[k - nY];
+      if (s[k + nY]) fx -= p[k + nY];
+      if (s[k - 1]) fy += p[k - 1];
+      if (s[k + 1]) fy -= p[k + 1];
+    }
+  }
+  const L = refLength();
+  if (!any || L <= 0) { stats.cd = stats.cl = NaN; return; }
+  const q = 0.5 * RHO * P.U * P.U * L;
+  stats.cd = fx * h / q; stats.cl = fy * h / q;
+  stats.cdS = isNaN(stats.cdS) ? stats.cd : stats.cdS + 0.04 * (stats.cd - stats.cdS);
+  stats.clS = isNaN(stats.clS) ? stats.cl : stats.clS + 0.3 * (stats.cl - stats.clS);
+  hist.push([F.t, stats.cl]);
+  while (hist.length && hist[0][0] < F.t - 10) hist.shift();
+}
+
+function analyzeShedding() {
+  const win = hist.filter(e => e[0] > F.t - 8);
+  if (win.length < 180) { stats.st = null; return; }
+  let m = 0; for (const e of win) m += e[1]; m /= win.length;
+  let sd = 0; for (const e of win) sd += (e[1] - m) ** 2; sd = Math.sqrt(sd / win.length);
+  if (sd < 0.02) { stats.st = null; return; }
+  const th = 0.4 * sd, ups = []; let state = 0;
+  for (const [t, c] of win) {
+    const x = c - m;
+    if (x > th) { if (state === -1) ups.push(t); state = 1; }
+    else if (x < -th) state = -1;
+  }
+  if (ups.length >= 3) {
+    const f = (ups.length - 1) / (ups[ups.length - 1] - ups[0]);
+    stats.st = f * refLength() / P.U;
+  } else stats.st = null;
+}
+
+function clearStats() { hist = []; stats.cdS = stats.clS = NaN; stats.st = null; }
+
+let stepCount = 0, stepMs = 0;
+function step() {
+  const t0 = performance.now();
+  updateSolids(DT);
+  applyInflow();
+  diffuse(DT);
+  project(DT);
+  extrapolate();
+  advectVel(DT);
+  advectDye(DT);
+  computeForces();
+  F.t += DT; stepCount++;
+  if (stepCount % 10 === 0) analyzeShedding();
+  const ms = performance.now() - t0;
+  stepMs = stepMs ? stepMs + 0.1 * (ms - stepMs) : ms;
+}
+
+function resetFlow() {
+  const { nX, nY, u, v, d, p } = F;
+  u.fill(0); v.fill(0); p.fill(0); F.u0.fill(0); F.v0.fill(0);
+  for (let i = 0; i < nX; i++) for (let j = 1; j < nY - 1; j++) { u[i * nY + j] = P.U; d[i * nY + j] = dyeAt(j); }
+  F.t = 0; clearStats();
+}
+
+function setup(res) {
+  P.res = res;
+  F = makeFluid(res);
+  gX = F.nX; gY = F.nY; gH = F.h;
+  resetFlow();
+  updateSolids(DT);
+  img = new ImageData(F.nX, F.nY);
+  off.width = F.nX; off.height = F.nY;
+  $("roGrid").textContent = `${F.nX} × ${F.nY} cells`;
+}
+
+/* ---------- rendering ---------- */
+function buildLUT(stops) {
+  const lut = new Uint8ClampedArray(256 * 3);
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255; let a = 0;
+    while (a < stops.length - 2 && t > stops[a + 1][0]) a++;
+    const [t0, c0] = stops[a], [t1, c1] = stops[a + 1], f = (t - t0) / (t1 - t0);
+    for (let c = 0; c < 3; c++) lut[i * 3 + c] = c0[c] + (c1[c] - c0[c]) * f;
+  }
+  return lut;
+}
+const MAPS = {
+  smoke: [[0, [9, 14, 22]], [0.5, [72, 94, 114]], [1, [238, 242, 246]]],
+  vort:  [[0, [96, 196, 255]], [0.3, [28, 92, 168]], [0.5, [8, 12, 18]], [0.7, [168, 58, 22]], [1, [255, 176, 86]]],
+  speed: [[0, [3, 4, 12]], [0.25, [72, 22, 112]], [0.5, [182, 56, 92]], [0.75, [246, 138, 32]], [1, [252, 250, 172]]],
+  press: [[0, [64, 212, 200]], [0.3, [22, 92, 110]], [0.5, [14, 18, 26]], [0.7, [124, 40, 92]], [1, [255, 112, 152]]]
+};
+const LUTS = Object.fromEntries(Object.entries(MAPS).map(([k, s]) => [k, buildLUT(s)]));
+
+const cv = $("view"), ctx = cv.getContext("2d");
+const off = document.createElement("canvas"), octx = off.getContext("2d");
+let img;
+
+function resize() {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.max(1, Math.round(r.width * dpr)); cv.height = Math.max(1, Math.round(r.height * dpr));
+  const sr = spark.getBoundingClientRect();
+  spark.width = Math.max(1, Math.round(sr.width * dpr)); spark.height = Math.max(1, Math.round(sr.height * dpr));
+}
+
+function vortScale() { return 30 * P.U; }
+
+function drawField() {
+  const { nX, nY, h, s, u, v, p, d, shape } = F, px = img.data;
+  const lut = LUTS[P.view], view = P.view;
+  const ws = vortScale(), q = 0.5 * RHO * P.U * P.U, ps = 1.4 * Math.max(q, 1e-6), us = 2 * P.U;
+  const inv2h = 1 / (2 * h);
+  for (let j = 0; j < nY; j++) {
+    const row = (nY - 1 - j) * nX;
+    for (let i = 0; i < nX; i++) {
+      const k = i * nY + j, o = (row + i) * 4;
+      if (s[k] === 0) {
+        if (shape[k]) { px[o] = 200; px[o + 1] = 208; px[o + 2] = 216; }
+        else if (i === 0 || j === 0 || j === nY - 1) { px[o] = 34; px[o + 1] = 42; px[o + 2] = 52; }
+        else { px[o] = 92; px[o + 1] = 104; px[o + 2] = 118; }
+        px[o + 3] = 255; continue;
+      }
+      let t;
+      if (view === "smoke") t = d[k];
+      else if (view === "press") t = 0.5 + 0.5 * Math.max(-1, Math.min(1, p[k] / ps));
+      else if (view === "speed") {
+        const uc = (u[k] + (i + 1 < nX ? u[k + nY] : u[k])) * 0.5, vc = (v[k] + v[k + 1]) * 0.5;
+        t = Math.min(1, Math.sqrt(uc * uc + vc * vc) / us);
+      } else {
+        if (i < 1 || i > nX - 2) { t = 0.5; }
+        else {
+          const vr = (v[k + nY] + v[k + nY + 1]) * 0.5, vl = (v[k - nY] + v[k - nY + 1]) * 0.5;
+          const ut = (u[k + 1] + u[k + nY + 1]) * 0.5, ub = (u[k - 1] + u[k + nY - 1]) * 0.5;
+          const w = (vr - vl) * inv2h - (ut - ub) * inv2h;
+          t = 0.5 + 0.5 * Math.max(-1, Math.min(1, w / ws));
+        }
+      }
+      const li = (Math.max(0, Math.min(255, (t * 255) | 0))) * 3;
+      px[o] = lut[li]; px[o + 1] = lut[li + 1]; px[o + 2] = lut[li + 2]; px[o + 3] = 255;
+    }
+  }
+  octx.putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(off, 0, 0, cv.width, cv.height);
+}
+
+function W2C(x, y) { return [x / 2 * cv.width, (1 - y) * cv.height]; }
+
+function drawStreamlines() {
+  const { nX, nY, h, u, v, s } = F;
+  const sp = Math.max(4, Math.round(nY / 22)), ds = 0.6 * h / Math.max(P.U, 0.1);
+  ctx.strokeStyle = "rgba(235,242,248,0.55)"; ctx.lineWidth = Math.max(1, cv.width / 900);
+  ctx.beginPath();
+  for (let i = 1; i < nX - 1; i += sp) {
+    for (let j = 1; j < nY - 1; j += sp) {
+      if (!s[i * nY + j]) continue;
+      let x = (i + 0.5) * h, y = (j + 0.5) * h;
+      let [cx, cy] = W2C(x, y); ctx.moveTo(cx, cy);
+      for (let n = 0; n < 16; n++) {
+        const uu = sample(x, y, u, 0, h / 2), vv = sample(x, y, v, h / 2, 0);
+        x += uu * ds; y += vv * ds;
+        if (x <= h || x >= (nX - 1) * h || y <= h || y >= (nY - 1) * h) break;
+        const ci = Math.floor(x / h), cj = Math.floor(y / h);
+        if (!s[ci * nY + cj]) break;
+        [cx, cy] = W2C(x, y); ctx.lineTo(cx, cy);
+      }
+    }
+  }
+  ctx.stroke();
+}
+
+function drawBody() {
+  const pts = shapeOutline();
+  if (!pts.length) return;
+  ctx.beginPath();
+  pts.forEach(([x, y], n) => { const [cx, cy] = W2C(x, y); n ? ctx.lineTo(cx, cy) : ctx.moveTo(cx, cy); });
+  ctx.closePath();
+  ctx.fillStyle = "#c8d0d8"; ctx.fill();
+  ctx.lineWidth = Math.max(1, cv.width / 700); ctx.strokeStyle = "#f2f5f8"; ctx.stroke();
+  if (P.shape !== "cylinder") {
+    const [cx, cy] = W2C(body.x, body.y);
+    ctx.fillStyle = "#3a4654"; ctx.beginPath(); ctx.arc(cx, cy, Math.max(2, cv.width / 400), 0, 7); ctx.fill();
+  }
+}
+
+function drawScale() {
+  // 0.2 m scale bar, bottom right
+  const len = 0.2 / 2 * cv.width, pad = cv.width * 0.012, y = cv.height - pad * 1.6, x1 = cv.width - pad, x0 = x1 - len;
+  ctx.strokeStyle = "rgba(226,234,240,0.8)"; ctx.lineWidth = Math.max(1, cv.width / 900);
+  ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.moveTo(x0, y - 4); ctx.lineTo(x0, y + 4); ctx.moveTo(x1, y - 4); ctx.lineTo(x1, y + 4); ctx.stroke();
+  ctx.fillStyle = "rgba(226,234,240,0.8)"; ctx.font = `${Math.max(10, cv.width / 90)}px "IBM Plex Mono", monospace`;
+  ctx.textAlign = "center"; ctx.textBaseline = "bottom"; ctx.fillText("0.2 m", (x0 + x1) / 2, y - 6);
+}
+
+const spark = $("spark"), sctx = spark.getContext("2d");
+let tokenCache = null, tokenFrame = 0;
+function tokens() {
+  if (!tokenCache || tokenFrame++ % 60 === 0) {
+    const cs = getComputedStyle(document.documentElement);
+    tokenCache = { fg: cs.getPropertyValue("--fg").trim(), muted: cs.getPropertyValue("--muted").trim(), line: cs.getPropertyValue("--line").trim(), accent: cs.getPropertyValue("--accent").trim() };
+  }
+  return tokenCache;
+}
+function drawSpark() {
+  const W = spark.width, H = spark.height, T = tokens();
+  sctx.clearRect(0, 0, W, H);
+  const win = hist.filter(e => e[0] > F.t - 8);
+  let amp = 0.5; for (const e of win) amp = Math.max(amp, Math.abs(e[1]));
+  amp = Math.ceil(amp * 2) / 2;
+  $("sparkRange").textContent = `scale ±${amp.toFixed(1)}`;
+  const dpr = W / spark.clientWidth || 1;
+  sctx.strokeStyle = T.line; sctx.lineWidth = dpr;
+  sctx.beginPath();
+  for (const f of [-0.5, 0.5]) { sctx.moveTo(0, H / 2 + f * (H - 8)); sctx.lineTo(W, H / 2 + f * (H - 8)); }
+  sctx.stroke();
+  sctx.strokeStyle = T.muted; sctx.setLineDash([3 * dpr, 3 * dpr]);
+  sctx.beginPath(); sctx.moveTo(0, H / 2); sctx.lineTo(W, H / 2); sctx.stroke(); sctx.setLineDash([]);
+  if (win.length < 2) return;
+  const t0 = F.t - 8, X = t => (t - t0) / 8 * W, Y = c => H / 2 - c / amp * (H - 8) / 2;
+  sctx.beginPath();
+  win.forEach(([t, c], n) => n ? sctx.lineTo(X(t), Y(c)) : sctx.moveTo(X(t), Y(c)));
+  sctx.strokeStyle = T.accent; sctx.lineWidth = 1.6 * dpr; sctx.stroke();
+  const [lt, lc] = win[win.length - 1];
+  sctx.fillStyle = T.accent; sctx.beginPath(); sctx.arc(X(lt), Y(lc), 3 * dpr, 0, 7); sctx.fill();
+}
+
+/* ---------- UI ---------- */
+let probe = null;
+function fmt(x, dg = 2) { return isFinite(x) ? (x < 0 ? "−" : "") + Math.abs(x).toFixed(dg) : "—"; }
+function sci(x) {
+  if (x <= 0) return "0 (inviscid)";
+  const e = Math.floor(Math.log10(x)), m = x / 10 ** e;
+  return `${m.toFixed(1)}×10<sup>${e < 0 ? "−" : ""}${Math.abs(e)}</sup> m²/s`;
+}
+function nuFromSlider(val) { return val <= 0 ? 0 : 10 ** (-5 + 3 * val / 100); }
+
+function updateReadouts() {
+  const L = refLength();
+  let re = "—";
+  if (L > 0) re = P.nu > 0 ? Math.round(P.U * L / P.nu).toLocaleString("en-US") : "∞";
+  $("roRe").textContent = re;
+  $("roCd").textContent = fmt(stats.cdS);
+  $("roCl").textContent = fmt(stats.clS);
+  $("roSt").textContent = stats.st == null ? "—" : stats.st.toFixed(3);
+  $("roT").textContent = `${F.t.toFixed(2)} s`;
+  $("roMs").textContent = stepMs ? `${stepMs.toFixed(1)} ms` : "—";
+  if (probe) {
+    const { nX, nY, h, u, v, p, s } = F;
+    const i = Math.min(nX - 2, Math.max(1, Math.floor(probe.x / h))), j = Math.min(nY - 2, Math.max(1, Math.floor(probe.y / h)));
+    const k = i * nY + j;
+    if (!s[k]) $("probeTag").textContent = `x ${probe.x.toFixed(2)} m  y ${probe.y.toFixed(2)} m  solid`;
+    else {
+      const uc = (u[k] + u[k + nY]) / 2, vc = (v[k] + v[k + 1]) / 2;
+      $("probeTag").textContent = `x ${probe.x.toFixed(2)}  y ${probe.y.toFixed(2)} m   |V| ${Math.hypot(uc, vc).toFixed(2)} m/s   p ${fmt(p[k], 2)} Pa`;
+    }
+  }
+}
+
+function updateColorbar() {
+  const stops = MAPS[P.view];
+  $("cbBar").style.background = `linear-gradient(90deg, ${stops.map(([t, c]) => `rgb(${c.join(",")}) ${(t * 100).toFixed(0)}%`).join(", ")})`;
+  const q = 0.5 * RHO * P.U * P.U;
+  const labels = {
+    smoke: ["clean air", "dye"],
+    vort: [`ω = −${vortScale().toFixed(0)} 1/s (cw)`, `+${vortScale().toFixed(0)} 1/s (ccw)`],
+    speed: ["0 m/s", `${(2 * P.U).toFixed(1)} m/s`],
+    press: [`p = −${(1.4 * q).toFixed(2)} Pa`, `+${(1.4 * q).toFixed(2)} Pa`]
+  }[P.view];
+  $("cbMin").textContent = labels[0]; $("cbMax").textContent = labels[1];
+}
+
+function updateLabels() {
+  $("inletTag").textContent = `INLET → U = ${P.U.toFixed(2)} m/s`;
+  const noun = SHAPES[P.shape].noun;
+  $("hintTag").textContent = P.tool === "move" ? (noun ? `Drag to move the ${noun}` : "Pick a shape or draw walls") :
+    P.tool === "wall" ? "Drag to draw walls" : "Drag to erase walls";
+  $("outU").textContent = `${P.U.toFixed(2)} m/s`;
+  $("outNu").innerHTML = sci(P.nu);
+  $("outSize").textContent = `${P.size.toFixed(2)} m`;
+  $("sizeName").textContent = SHAPES[P.shape].name;
+  $("outAoa").textContent = `${P.aoa}°`;
+  $("rngAoa").disabled = !SHAPES[P.shape].aoa;
+  $("rngSize").disabled = P.shape === "none";
+  $("outIt").textContent = P.iters;
+  $("outOm").textContent = P.omega.toFixed(2);
+  $("btnRun").textContent = P.running ? "Pause" : "Run";
+  updateColorbar();
+}
+
+function toWorld(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / r.width * 2, y: (1 - (e.clientY - r.top) / r.height) };
+}
+function clampBody(w) { return { x: Math.min(1.85, Math.max(0.15, w.x)), y: Math.min(0.88, Math.max(0.12, w.y)) }; }
+function paintAt(w, val) {
+  const { nX, nY, h, wall } = F, r = 0.022;
+  const i0 = Math.max(1, Math.floor((w.x - r) / h)), i1 = Math.min(nX - 2, Math.ceil((w.x + r) / h));
+  const j0 = Math.max(1, Math.floor((w.y - r) / h)), j1 = Math.min(nY - 2, Math.ceil((w.y + r) / h));
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+    const dx = (i + 0.5) * h - w.x, dy = (j + 0.5) * h - w.y;
+    if (dx * dx + dy * dy <= r * r) wall[i * nY + j] = val;
+  }
+}
+function paintLine(a, b, val) {
+  const dist = Math.hypot(b.x - a.x, b.y - a.y), n = Math.max(1, Math.ceil(dist / (F.h * 0.5)));
+  for (let k = 0; k <= n; k++) paintAt({ x: a.x + (b.x - a.x) * k / n, y: a.y + (b.y - a.y) * k / n }, val);
+}
+
+let dragging = false, last = null;
+cv.addEventListener("pointerdown", e => {
+  cv.setPointerCapture(e.pointerId); dragging = true;
+  const w = toWorld(e); last = w;
+  if (P.tool === "move") { if (P.shape !== "none") { const c = clampBody(w); body.tx = c.x; body.ty = c.y; } }
+  else paintAt(w, P.tool === "wall" ? 1 : 0);
+});
+cv.addEventListener("pointermove", e => {
+  const w = toWorld(e); probe = w;
+  if (!dragging) return;
+  if (P.tool === "move") { if (P.shape !== "none") { const c = clampBody(w); body.tx = c.x; body.ty = c.y; } }
+  else paintLine(last, w, P.tool === "wall" ? 1 : 0);
+  last = w;
+});
+const endDrag = () => { dragging = false; };
+cv.addEventListener("pointerup", endDrag);
+cv.addEventListener("pointercancel", endDrag);
+cv.addEventListener("pointerleave", () => { if (!dragging) { probe = null; $("probeTag").textContent = "Hover to probe the flow"; } });
+
+function bindSeg(id, attr, key, after) {
+  const seg = $(id);
+  seg.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    P[key] = b.dataset[attr];
+    seg.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    if (after) after(); updateLabels();
+  });
+}
+bindSeg("viewSeg", "view", "view");
+bindSeg("toolSeg", "tool", "tool");
+
+$("chkStream").addEventListener("change", e => { P.streamlines = e.target.checked; });
+$("selShape").addEventListener("change", e => {
+  P.shape = e.target.value; P.size = SHAPES[P.shape].size;
+  if (!SHAPES[P.shape].aoa) P.aoa = 0;
+  else if (P.shape === "airfoil" && P.aoa === 0) P.aoa = 8;
+  $("rngSize").value = P.size; $("rngAoa").value = P.aoa;
+  if (P.shape === "none" && P.tool === "move") $("toolSeg").querySelector('[data-tool="wall"]').click();
+  clearStats(); updateLabels();
+});
+$("rngSize").addEventListener("input", e => { P.size = +e.target.value; clearStats(); updateLabels(); });
+$("rngAoa").addEventListener("input", e => { P.aoa = +e.target.value; clearStats(); updateLabels(); });
+$("rngU").addEventListener("input", e => { P.U = +e.target.value; clearStats(); updateLabels(); });
+$("rngNu").addEventListener("input", e => { P.nu = nuFromSlider(+e.target.value); clearStats(); updateLabels(); });
+$("rngIt").addEventListener("input", e => { P.iters = +e.target.value; updateLabels(); });
+$("rngOm").addEventListener("input", e => { P.omega = +e.target.value; updateLabels(); });
+$("selRes").addEventListener("change", e => { setup(+e.target.value); updateLabels(); });
+$("btnRun").addEventListener("click", () => { P.running = !P.running; updateLabels(); });
+$("btnStep").addEventListener("click", () => { P.running = false; step(); updateLabels(); });
+$("btnReset").addEventListener("click", () => { resetFlow(); });
+$("btnClear").addEventListener("click", () => { F.wall.fill(0); clearStats(); });
+document.addEventListener("keydown", e => {
+  if (e.code === "Space" && !/INPUT|SELECT|BUTTON|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); P.running = !P.running; updateLabels(); }
+});
+
+/* ---------- boot ---------- */
+P.nu = nuFromSlider(+$("rngNu").value);
+setup(P.res);
+for (let k = 0; k < 90; k++) step();   // open on a developed flow, not an empty tunnel
+updateLabels();
+new ResizeObserver(resize).observe($("tunnel"));
+resize();
+
+let frameNo = 0;
+function frame() {
+  if (P.running) step();
+  else updateSolids(DT);
+  drawField();
+  if (P.streamlines) drawStreamlines();
+  drawBody();
+  drawScale();
+  if (frameNo++ % 4 === 0) { drawSpark(); updateReadouts(); }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
