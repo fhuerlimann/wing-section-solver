@@ -7,32 +7,18 @@
 <style>
 /* Layout: engineering bench. Flow field and results on the left, case set-up rack on the right, method notes below. */
 :root {
-  --bg: #e9edf1;
-  --panel: #f8fafb;
-  --fg: #111b24;
-  --muted: #56636f;
-  --line: #cfd7df;
-  --accent: #c2410c;
-  --accent-ink: #ffffff;
-  --series2: #1d5fa8;
-  --solid: #2b3540;
-  --good: #1f7a4a;
-  --warn: #a15c00;
+  /* Dark is the default theme; light only when the host asks for it. */
+  --bg: #0c1217; --panel: #131b22; --fg: #e2e8ed; --muted: #8b99a5; --line: #26323c;
+  --accent: #ff8a4c; --accent-ink: #1a0d05; --series2: #6fb4ff; --solid: #c9d2da; --good: #5fcf92; --warn: #f0b350;
+  color-scheme: dark;
   --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
   --f-body: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0c1217; --panel: #131b22; --fg: #e2e8ed; --muted: #8b99a5; --line: #26323c;
-    --accent: #ff8a4c; --accent-ink: #1a0d05; --series2: #6fb4ff; --solid: #c9d2da; --good: #5fcf92; --warn: #f0b350;
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0c1217; --panel: #131b22; --fg: #e2e8ed; --muted: #8b99a5; --line: #26323c;
-  --accent: #ff8a4c; --accent-ink: #1a0d05; --series2: #6fb4ff; --solid: #c9d2da; --good: #5fcf92; --warn: #f0b350;
-  color-scheme: dark;
+:root[data-theme="light"] {
+  --bg: #e9edf1; --panel: #f8fafb; --fg: #111b24; --muted: #56636f; --line: #cfd7df;
+  --accent: #c2410c; --accent-ink: #ffffff; --series2: #1d5fa8; --solid: #2b3540; --good: #1f7a4a; --warn: #a15c00;
+  color-scheme: light;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
