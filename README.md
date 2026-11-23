@@ -2,6 +2,8 @@
 
 A 2D airfoil CFD solver that runs entirely in the browser. It solves the Reynolds-averaged Navier–Stokes equations on a body-fitted C/O grid in a Web Worker and shows the flow field, surface pressure and skin friction, and integrated forces.
 
+**Live site:** <https://fhuerlimann.github.io/wing-section-solver/>
+
 ## Features
 
 - **Sections:** NACA 4-digit, transonic sections from published coordinates (RAE 2822, NASA SC(2), NLR 7301, NACA 64A), NASA NLF(1)-0416, Eppler 387, sharp supersonic sections, and a circle (bluff body).
